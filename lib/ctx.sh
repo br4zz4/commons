@@ -136,3 +136,24 @@ commons_prepare() {
   TAG="${TAG-}"
   export MODULE ENVIRONMENT TAG
 }
+
+commons_scope_pairs() {
+  ward secrets "$1" | sed -e 's/^[[:space:]]*//'
+}
+
+commons_check_collision() {
+  code_scope="$1"
+  infra_scope="$2"
+  names_code=$(commons_scope_names "$code_scope")
+  names_infra=$(commons_scope_names "$infra_scope")
+  for name in $names_code; do
+    for other in $names_infra; do
+      [ "$name" = "$other" ] && commons_die "$name existe em $code_scope e $infra_scope"
+    done
+  done
+  return 0
+}
+
+commons_relative() {
+  printf '%s\n' "${1#"$COMMONS_ROOT"/}"
+}

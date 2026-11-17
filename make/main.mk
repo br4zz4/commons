@@ -9,7 +9,7 @@ export CONFIRM
 COMMONS_MODULES := $(shell python3 -I $(COMMONS_MK_DIR)/../lib/modules.py $(COMMONS_PROJECT_ROOT) list)
 
 define COMMONS_MODULE_RULES
-.PHONY: $(1).lint $(1).audit $(1).test $(1).build $(1).validate $(1).plan $(1).shell $(1).keys
+.PHONY: $(1).lint $(1).audit $(1).test $(1).build $(1).validate $(1).plan $(1).shell $(1).keys $(1).db $(1).remote $(1).secrets
 $(1).lint:
 	@$(COMMONS_BIN) hook $(1) lint $(ARGS)
 $(1).audit:
@@ -26,6 +26,12 @@ $(1).shell:
 	@$(COMMONS_BIN) shell $(1)
 $(1).keys:
 	@$(COMMONS_BIN) keys $(1)
+$(1).db:
+	@$(COMMONS_BIN) db $(1)
+$(1).remote:
+	@$(COMMONS_BIN) remote $(1) $(ARGS)
+$(1).secrets:
+	@$(COMMONS_BIN) secrets $(1)
 endef
 
 define COMMONS_RUN_RULE
@@ -33,6 +39,11 @@ define COMMONS_RUN_RULE
 $(1).$(2):
 	@$(COMMONS_BIN) run $(1) $(2) $(ARGS)
 endef
+
+
+.PHONY: conform
+conform:
+	@$(COMMONS_BIN) conform
 
 $(foreach module,$(COMMONS_MODULES),$(eval $(call COMMONS_MODULE_RULES,$(module))))
 

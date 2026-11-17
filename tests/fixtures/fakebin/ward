@@ -1,10 +1,29 @@
 #!/bin/sh
 printf 'ward %s\n' "$*" >>"$FAKE_LOG"
+
+pairs_for() {
+  case "$1" in
+    *.infra.*) printf '%b\n' "${FAKE_WARD_INFRA-I=sekret3}" ;;
+    *) printf '%b\n' "${FAKE_WARD_PAIRS-A=sekret1\nB=sekret2}" ;;
+  esac
+}
+
 case "$1" in
   exec)
     shift
-    while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do shift; done
+    scopes=""
+    while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do
+      scopes="$scopes $1"
+      shift
+    done
     shift
+    for scope in $scopes; do
+      for pair in $(pairs_for "$scope" | sed -e 's/[[:space:]]*=[[:space:]]*/=/'); do
+        name=${pair%%=*}
+        [ -n "$name" ] || continue
+        export "$name=${pair#*=}"
+      done
+    done
     exec "$@"
     ;;
   secrets)
@@ -15,7 +34,7 @@ case "$1" in
     if [ "${FAKE_WARD_EMPTY-}" = 1 ]; then
       exit 0
     fi
-    printf 'A=sekret1\nB=sekret2\n'
+    pairs_for "$2"
     ;;
   *) exit 2 ;;
 esac

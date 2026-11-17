@@ -77,11 +77,69 @@ cmd_keys() {
   commons_scope_names "$scope"
 }
 
+cmd_db() {
+  module="$1"
+  commons_prepare "$module" code "$COMMONS_ENV_LOCAL"
+  dir=$(commons_dir "$module" code)
+  CI_CACHE_DIR="$dir/.ci-cache"
+  export CI_CACHE_DIR
+  commons_run_in "$dir" sh -c '[ -n "${DATABASE_URL-}" ] || { echo "commons: sem DATABASE_URL" >&2; exit 1; }; command -v psql >/dev/null 2>&1 || { echo "commons: psql não encontrado" >&2; exit 1; }; exec psql "$DATABASE_URL"'
+}
+
+prepare_ops() {
+  module="$1"
+  hook="$2"
+  commons_prepare "$module" "code infra" "$COMMONS_ENV_REMOTE"
+  infra=$(commons_dir "$module" infra)
+  script="$infra/ops/$hook.sh"
+  [ -f "$script" ] || commons_die "$module sem $(commons_relative "$script")"
+  if [ -n "$COMMONS_SCOPES" ]; then
+    code_scope=$(commons_scope "$module" code)
+    infra_scope=$(commons_scope "$module" infra)
+    case " $COMMONS_SCOPES " in
+      *" $code_scope "*)
+        case " $COMMONS_SCOPES " in
+          *" $infra_scope "*) commons_check_collision "$code_scope" "$infra_scope" ;;
+        esac
+        ;;
+    esac
+  fi
+  CI_CACHE_DIR="$infra/.ci-cache"
+  export CI_CACHE_DIR
+}
+
+cmd_remote() {
+  module="$1"
+  shift
+  prepare_ops "$module" remote
+  commons_run_in "$infra" sh "$script" "$@"
+}
+
+cmd_secrets() {
+  module="$1"
+  shift
+  prepare_ops "$module" secrets
+  [ -n "$(commons_vault_for_env "$COMMONS_CURRENT_ENV")" ] || commons_die "projeto sem vault"
+  code_scope=$(commons_scope "$module" code)
+  commons_check_scope "$code_scope" || commons_die "escopo $code_scope vazio"
+  missing=$(commons_scope_pairs "$code_scope" | awk -F'=' '{ name=$1; sub(/[ \t]+$/, "", name); value=$0; sub(/^[^=]*=[ \t]*/, "", value); if (value == "" || value == "CHANGE_ME") printf "%s ", name }' | sed -e 's/ $//')
+  keys=$(commons_scope_names "$code_scope" | tr '\n' ' ' | sed -e 's/ $//')
+  [ -z "$missing" ] || commons_die "sem valor: $missing"
+  COMMONS_SECRET_KEYS="$keys"
+  export COMMONS_SECRET_KEYS
+  commons_run_in "$infra" sh "$script" "$@"
+}
+
+cmd_conform() {
+  . "$COMMONS_HOME/lib/conform.sh"
+  commons_conform
+}
+
 [ "$#" -ge 1 ] || commons_die "uso: commons <hook|run|shell|keys> <módulo> ..."
 command="$1"
 shift
 case "$command" in
-  help | -h | --help) ;;
+  help | -h | --help | conform) ;;
   *) commons_load_ctx ;;
 esac
 
@@ -89,6 +147,10 @@ case "$command" in
   hook) [ "$#" -ge 2 ] || commons_die "uso: commons hook <módulo> <step>"; cmd_hook "$@" ;;
   run) [ "$#" -ge 2 ] || commons_die "uso: commons run <módulo> <nome>"; cmd_run "$@" ;;
   shell) [ "$#" -ge 1 ] || commons_die "uso: commons shell <módulo>"; cmd_shell "$@" ;;
+  db) [ "$#" -ge 1 ] || commons_die "uso: commons db <módulo>"; cmd_db "$@" ;;
+  remote) [ "$#" -ge 1 ] || commons_die "uso: commons remote <módulo>"; cmd_remote "$@" ;;
+  secrets) [ "$#" -ge 1 ] || commons_die "uso: commons secrets <módulo>"; cmd_secrets "$@" ;;
+  conform) cmd_conform ;;
   keys) [ "$#" -ge 1 ] || commons_die "uso: commons keys <módulo>"; cmd_keys "$@" ;;
   *) commons_die "comando $command desconhecido" ;;
 esac
