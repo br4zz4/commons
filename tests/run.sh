@@ -720,6 +720,460 @@ t_make_reserved_run_not_a_target() {
   hook_has "MODULE=core"
 }
 
+install_psql() {
+  cat >"$C/fakebin/psql" <<'EOF'
+#!/bin/sh
+{
+  printf 'PSQL_ARGS=%s\n' "$*"
+  printf 'PWD=%s\n' "$(pwd -P)"
+} >"$HOOK_OUT"
+EOF
+  chmod +x "$C/fakebin/psql"
+}
+
+hide_psql() {
+  shadow="$C/shadow"
+  mkdir -p "$shadow"
+  new_path="$C/fakebin"
+  old_ifs="$IFS"
+  IFS=:
+  for dir in $ORIG_PATH; do
+    if [ -x "$dir/psql" ]; then
+      for entry in "$dir"/*; do
+        [ "$(basename "$entry")" = psql ] && continue
+        ln -sf "$entry" "$shadow/$(basename "$entry")" 2>/dev/null
+      done
+      case ":$new_path:" in
+        *":$shadow:"*) ;;
+        *) new_path="$new_path:$shadow" ;;
+      esac
+    else
+      new_path="$new_path:$dir"
+    fi
+  done
+  IFS="$old_ifs"
+  PATH="$new_path"
+  export PATH
+}
+
+t_db_without_url() {
+  # arrange
+  install_psql
+  # act
+  cm "$BIN" db core
+  # assert
+  rc_fail
+  err_has "commons: sem DATABASE_URL"
+  hook_not_ran
+}
+
+t_db_calls_psql() {
+  # arrange
+  install_psql
+  code="$P/modules/core/code"
+  # act
+  cm DATABASE_URL=postgres://u@h/db "$BIN" db core
+  # assert
+  rc_ok
+  hook_has "PSQL_ARGS=postgres://u@h/db"
+  hook_has "PWD=$(phys "$code")"
+  log_has "ward exec demo:secrets.core.code.dev"
+}
+
+t_db_without_psql() {
+  # arrange
+  hide_psql
+  # act
+  cm DATABASE_URL=postgres://u@h/db "$BIN" db core
+  # assert
+  rc_fail
+  err_has "psql"
+  hook_not_ran
+}
+
+t_db_via_make() {
+  # arrange
+  install_psql
+  # act
+  cm DATABASE_URL=postgres://u@h/db make --no-print-directory core.db
+  # assert
+  rc_ok
+  hook_has "PSQL_ARGS=postgres://u@h/db"
+}
+
+t_remote_runs_hook() {
+  # arrange
+  infra="$P/modules/core/infra"
+  # act
+  cm "$BIN" remote core one two
+  # assert
+  rc_ok
+  hook_has "HOOK=remote.sh"
+  hook_has "MODULE=core"
+  hook_has "ENVIRONMENT=remote"
+  hook_has "PWD=$(phys "$infra")"
+  hook_has "ARGS=one two"
+  hook_has "A=sekret1"
+  hook_has "I=sekret3"
+  log_has "ward exec demo:secrets.core.code.remote demo:secrets.core.infra.remote"
+}
+
+t_remote_missing_hook() {
+  # arrange
+  rm "$P/modules/core/infra/ops/remote.sh"
+  # act
+  cm "$BIN" remote core
+  # assert
+  rc_fail
+  err_has "commons: core sem modules/core/infra/ops/remote.sh"
+  hook_not_ran
+}
+
+t_remote_collision() {
+  # arrange
+  # act
+  cm FAKE_WARD_PAIRS=A=sekret1 FAKE_WARD_INFRA=A=sekret9 "$BIN" remote core
+  # assert
+  rc_fail
+  err_has "A existe em demo:secrets.core.code.remote e demo:secrets.core.infra.remote"
+  hook_not_ran
+  log_lacks "ward exec"
+  never_leaks
+}
+
+t_remote_restricted_guard() {
+  # arrange
+  # act
+  cm ENV=prod "$BIN" remote core
+  # assert
+  rc_fail
+  hook_not_ran
+}
+
+t_remote_via_make() {
+  # arrange
+  # act
+  cm make --no-print-directory core.remote ARGS=x
+  # assert
+  rc_ok
+  hook_has "HOOK=remote.sh"
+  hook_has "ARGS=x"
+}
+
+t_secrets_green() {
+  # arrange
+  infra="$P/modules/core/infra"
+  # act
+  cm "$BIN" secrets core
+  # assert
+  rc_ok
+  hook_has "HOOK=secrets.sh"
+  hook_has "COMMONS_SECRET_KEYS=A B"
+  hook_has "PWD=$(phys "$infra")"
+  hook_has "ENVIRONMENT=remote"
+  log_has "demo:secrets.core.code.remote"
+}
+
+t_secrets_env_override() {
+  # arrange
+  # act
+  cm ENV=check "$BIN" secrets core
+  # assert
+  rc_ok
+  hook_has "ENVIRONMENT=check"
+  log_has "demo:secrets.core.code.check"
+}
+
+t_secrets_empty_value() {
+  # arrange
+  # act
+  cm "FAKE_WARD_PAIRS=A=sekret1\nB=\nC=CHANGE_ME\nD=sekret4" "$BIN" secrets core
+  # assert
+  rc_fail
+  err_has "commons: sem valor: B C"
+  hook_not_ran
+  never_leaks
+}
+
+t_secrets_change_me_only() {
+  # arrange
+  # act
+  cm "FAKE_WARD_PAIRS=A=sekret1\nB=CHANGE_ME" "$BIN" secrets core
+  # assert
+  rc_fail
+  err_has "commons: sem valor: B"
+  hook_not_ran
+  never_leaks
+}
+
+t_secrets_empty_scope() {
+  # arrange
+  # act
+  cm FAKE_WARD_EMPTY=1 "$BIN" secrets core
+  # assert
+  rc_fail
+  err_has "escopo demo:secrets.core.code.remote vazio"
+  hook_not_ran
+}
+
+t_secrets_no_key() {
+  # arrange
+  # act
+  cm FAKE_WARD_NOKEY=1 "$BIN" secrets core
+  # assert
+  rc_fail
+  err_has "sem acesso ao vault demo"
+  hook_not_ran
+  never_leaks
+}
+
+t_secrets_missing_hook() {
+  # arrange
+  rm "$P/modules/core/infra/ops/secrets.sh"
+  # act
+  cm "$BIN" secrets core
+  # assert
+  rc_fail
+  err_has "commons: core sem modules/core/infra/ops/secrets.sh"
+  hook_not_ran
+}
+
+t_secrets_collision() {
+  # arrange
+  # act
+  cm FAKE_WARD_PAIRS=A=sekret1 FAKE_WARD_INFRA=A=sekret9 "$BIN" secrets core
+  # assert
+  rc_fail
+  err_has "A existe em"
+  hook_not_ran
+  never_leaks
+}
+
+t_secrets_restricted_guard() {
+  # arrange
+  # act
+  cm ENV=prod "$BIN" secrets core
+  # assert
+  rc_fail
+  hook_not_ran
+  never_leaks
+}
+
+t_secrets_via_make() {
+  # arrange
+  # act
+  cm make --no-print-directory core.secrets
+  # assert
+  rc_ok
+  hook_has "HOOK=secrets.sh"
+  hook_has "COMMONS_SECRET_KEYS=A B"
+}
+
+t_secrets_no_leak_on_any_failure() {
+  # arrange
+  # act
+  cm "FAKE_WARD_PAIRS=A=sekret1\nB=" "$BIN" secrets core
+  # assert
+  rc_fail
+  never_leaks
+  cm FAKE_WARD_PAIRS=A=sekret1 FAKE_WARD_INFRA=A=sekret2 "$BIN" secrets core
+  rc_fail
+  never_leaks
+  cm FAKE_WARD_PAIRS=A=sekret1 FAKE_WARD_INFRA=A=sekret2 "$BIN" remote core
+  rc_fail
+  never_leaks
+  cm FAKE_WARD_NOKEY=1 "$BIN" secrets core
+  rc_fail
+  never_leaks
+}
+
+t_conform_green() {
+  # arrange
+  # act
+  cm "$BIN" conform
+  # assert
+  rc_ok
+  err_has "conform ok"
+}
+
+t_conform_green_via_make() {
+  # arrange
+  # act
+  cm make --no-print-directory conform
+  # assert
+  rc_ok
+}
+
+t_conform_red_via_make() {
+  # arrange
+  ctx_without COMMONS_REF
+  # act
+  cm make --no-print-directory conform
+  # assert
+  rc_fail
+  err_has "commons.ctx"
+  err_has "COMMONS_REF"
+}
+
+t_conform_no_ctx() {
+  # arrange
+  rm "$P/commons.ctx"
+  # act
+  cm "$BIN" conform
+  # assert
+  rc_fail
+  err_has "commons.ctx"
+}
+
+t_conform_ctx_missing_key() {
+  # arrange
+  ctx_without COMMONS_PROJECT
+  # act
+  cm "$BIN" conform
+  # assert
+  rc_fail
+  err_has "commons.ctx"
+  err_has "COMMONS_PROJECT"
+}
+
+t_conform_ctx_each_required_key() {
+  # arrange
+  original=$(cat "$P/commons.ctx")
+  for key in COMMONS_PROJECT COMMONS_ENVS COMMONS_ENV_LOCAL COMMONS_ENV_CHECK COMMONS_ENV_REMOTE COMMONS_REF; do
+    printf '%s\n' "$original" >"$P/commons.ctx"
+    ctx_without "$key"
+    # act
+    cm "$BIN" conform
+    # assert
+    rc_fail
+    err_has "$key"
+  done
+}
+
+t_conform_ctx_env_outside_envs() {
+  # arrange
+  sed -e 's/^COMMONS_ENV_LOCAL=.*/COMMONS_ENV_LOCAL=nope/' "$P/commons.ctx" >"$P/commons.ctx.new" && mv "$P/commons.ctx.new" "$P/commons.ctx"
+  # act
+  cm "$BIN" conform
+  # assert
+  rc_fail
+  err_has "commons.ctx"
+  err_has "nope"
+}
+
+t_conform_modules_missing() {
+  # arrange
+  rm "$P/.github/modules.json"
+  # act
+  cm "$BIN" conform
+  # assert
+  rc_fail
+  err_has ".github/modules.json"
+}
+
+t_conform_modules_invalid() {
+  # arrange
+  printf '{ nope' >"$P/.github/modules.json"
+  # act
+  cm "$BIN" conform
+  # assert
+  rc_fail
+  err_has ".github/modules.json"
+}
+
+t_conform_modules_invalid_name() {
+  # arrange
+  printf '{"modules":{"Bad":{}}}\n' >"$P/.github/modules.json"
+  # act
+  cm "$BIN" conform
+  # assert
+  rc_fail
+  err_has ".github/modules.json"
+  err_has "Bad"
+}
+
+t_conform_reserved_run_names() {
+  # arrange
+  for name in lint audit test build validate plan shell db keys remote secrets; do
+    printf '#!/bin/sh\n' >"$P/modules/core/code/run/$name"
+    # act
+    cm "$BIN" conform
+    # assert
+    rc_fail
+    err_has "modules/core/code/run/$name"
+    rm -f "$P/modules/core/code/run/$name"
+  done
+}
+
+t_conform_reserved_run_in_override_dir() {
+  # arrange
+  mkdir -p "$P/modules/plain/app/run"
+  printf '#!/bin/sh\n' >"$P/modules/plain/app/run/lint"
+  # act
+  cm "$BIN" conform
+  # assert
+  rc_fail
+  err_has "modules/plain/app/run/lint"
+}
+
+t_conform_ops_outside_vocabulary() {
+  # arrange
+  printf '#!/bin/sh\n' >"$P/modules/core/infra/ops/deploy.sh"
+  # act
+  cm "$BIN" conform
+  # assert
+  rc_fail
+  err_has "modules/core/infra/ops/deploy.sh"
+}
+
+t_conform_compose_missing_fragment() {
+  # arrange
+  printf 'include:\n  - .commons/compose/x.yml\n' >"$P/compose.yml"
+  # act
+  cm "$BIN" conform
+  # assert
+  rc_fail
+  err_has "compose.yml"
+  err_has ".commons/compose/x.yml"
+}
+
+t_conform_compose_existing_fragment() {
+  # arrange
+  rm "$P/.commons"
+  mkdir -p "$P/.commons/compose"
+  : >"$P/.commons/compose/x.yml"
+  printf 'include:\n  - .commons/compose/x.yml\n' >"$P/compose.yml"
+  # act
+  cm "$BIN" conform
+  # assert
+  rc_ok
+}
+
+t_conform_compose_absent_is_green() {
+  # arrange
+  rm -f "$P/compose.yml"
+  # act
+  cm "$BIN" conform
+  # assert
+  rc_ok
+}
+
+t_conform_multiple_violations() {
+  # arrange
+  ctx_without COMMONS_REF
+  printf '#!/bin/sh\n' >"$P/modules/core/code/run/lint"
+  printf '#!/bin/sh\n' >"$P/modules/core/infra/ops/deploy.sh"
+  printf 'include:\n  - .commons/compose/x.yml\n' >"$P/compose.yml"
+  # act
+  cm "$BIN" conform
+  # assert
+  rc_fail
+  err_has "COMMONS_REF"
+  err_has "modules/core/code/run/lint"
+  err_has "modules/core/infra/ops/deploy.sh"
+  err_has ".commons/compose/x.yml"
+}
+
 run_case "hook: cwd no dir code, MODULE, ENVIRONMENT=check, CI_CACHE_DIR, TAG vazio" t_hook_code
 run_case "hook: lint, audit e build rodam no dir code (build usa o env remote)" t_hook_steps_code
 run_case "hook infra: validate lê o escopo infra" t_hook_infra
@@ -777,6 +1231,43 @@ run_case "make core.validate roda no dir infra" t_make_infra_step
 run_case "make core.console ENV=prod sem CONFIRM falha" t_make_restricted_guard
 run_case "make core.console ENV=prod CONFIRM=demo roda" t_make_restricted_confirm
 run_case "make: run/lint reservado não vira target e o hook vence" t_make_reserved_run_not_a_target
+run_case "db: sem DATABASE_URL falha" t_db_without_url
+run_case "db: chama psql com DATABASE_URL no dir code" t_db_calls_psql
+run_case "db: sem psql falha" t_db_without_psql
+run_case "make core.db" t_db_via_make
+run_case "remote: roda ops/remote.sh no dir infra com env dos dois escopos e ARGS" t_remote_runs_hook
+run_case "remote: hook ausente falha citando o caminho" t_remote_missing_hook
+run_case "remote: colisão entre escopos code e infra falha sem rodar o hook" t_remote_collision
+run_case "remote respeita a guarda de ambiente restrito" t_remote_restricted_guard
+run_case "make core.remote ARGS=x" t_remote_via_make
+run_case "secrets: caso verde exporta COMMONS_SECRET_KEYS e roda o hook" t_secrets_green
+run_case "secrets: ENV=check sobrescreve o default remote" t_secrets_env_override
+run_case "secrets: valor vazio e CHANGE_ME listam só os nomes" t_secrets_empty_value
+run_case "secrets: só CHANGE_ME" t_secrets_change_me_only
+run_case "secrets: escopo vazio falha" t_secrets_empty_scope
+run_case "secrets: sem chave do vault falha" t_secrets_no_key
+run_case "secrets: hook ausente falha" t_secrets_missing_hook
+run_case "secrets: colisão entre escopos falha" t_secrets_collision
+run_case "secrets respeita a guarda de ambiente restrito" t_secrets_restricted_guard
+run_case "make core.secrets" t_secrets_via_make
+run_case "secrets/remote: nenhum valor vaza em qualquer falha" t_secrets_no_leak_on_any_failure
+run_case "conform: verde no fixture" t_conform_green
+run_case "make conform: verde" t_conform_green_via_make
+run_case "make conform: vermelho" t_conform_red_via_make
+run_case "conform: sem commons.ctx" t_conform_no_ctx
+run_case "conform: ctx sem chave obrigatória" t_conform_ctx_missing_key
+run_case "conform: cada chave obrigatória do ctx" t_conform_ctx_each_required_key
+run_case "conform: ENV_* fora de ENVS" t_conform_ctx_env_outside_envs
+run_case "conform: modules.json ausente" t_conform_modules_missing
+run_case "conform: modules.json inválido" t_conform_modules_invalid
+run_case "conform: nome de módulo inválido" t_conform_modules_invalid_name
+run_case "conform: run/ com nomes reservados" t_conform_reserved_run_names
+run_case "conform: run/ reservado em code.dir customizado" t_conform_reserved_run_in_override_dir
+run_case "conform: ops fora do vocabulário" t_conform_ops_outside_vocabulary
+run_case "conform: compose com fragment inexistente" t_conform_compose_missing_fragment
+run_case "conform: compose com fragment existente" t_conform_compose_existing_fragment
+run_case "conform: sem compose.yml é verde" t_conform_compose_absent_is_green
+run_case "conform: múltiplas violações juntas" t_conform_multiple_violations
 
 printf '1..%s\n' "$N"
 printf '# passed %s, failed %s\n' "$PASSED" "$FAILED"
