@@ -1,0 +1,8 @@
+{
+  "shared": [".github/", "commons.ctx", "Makefile"],
+  "modules": {
+    "ruby": {},
+    "go": {},
+    "elixir": {}
+  }
+}

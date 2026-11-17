@@ -5,6 +5,9 @@ on:
     branches: [ main ]
 permissions:
   contents: read
+env:
+  MISE_TRUSTED_CONFIG_PATHS: ${{ github.workspace }}
+  MISE_YES: "1"
 jobs:
   unit-linux:
     name: unit-linux
@@ -28,3 +31,48 @@ jobs:
         run: brew install shellcheck && shellcheck -S warning bin/* lib/*.sh tests/*.sh
       - name: suite
         run: sh tests/run.sh
+  example-ruby:
+    name: example-ruby
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: checkout
+        uses: actions/checkout@v6
+      - name: mise
+        uses: jdx/mise-action@v2
+        with:
+          install: false
+      - name: lint
+        run: make -C examples/polyglot ruby.lint
+      - name: test
+        run: make -C examples/polyglot ruby.test
+  example-go:
+    name: example-go
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: checkout
+        uses: actions/checkout@v6
+      - name: mise
+        uses: jdx/mise-action@v2
+        with:
+          install: false
+      - name: lint
+        run: make -C examples/polyglot go.lint
+      - name: test
+        run: make -C examples/polyglot go.test
+  example-elixir:
+    name: example-elixir
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: checkout
+        uses: actions/checkout@v6
+      - name: mise
+        uses: jdx/mise-action@v2
+        with:
+          install: false
+      - name: lint
+        run: make -C examples/polyglot elixir.lint
+      - name: test
+        run: make -C examples/polyglot elixir.test
