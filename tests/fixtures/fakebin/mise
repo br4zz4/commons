@@ -1,0 +1,10 @@
+#!/bin/sh
+printf 'mise %s\n' "$*" >>"$FAKE_LOG"
+[ "$1" = exec ] || exit 2
+shift
+[ "$1" = -C ] || exit 2
+dir="$2"
+shift 2
+[ "$1" = "--" ] && shift
+cd "$dir" || exit 1
+exec "$@"

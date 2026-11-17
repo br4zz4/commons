@@ -1,0 +1,21 @@
+#!/bin/sh
+printf 'ward %s\n' "$*" >>"$FAKE_LOG"
+case "$1" in
+  exec)
+    shift
+    while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do shift; done
+    shift
+    exec "$@"
+    ;;
+  secrets)
+    if [ "${FAKE_WARD_NOKEY-}" = 1 ]; then
+      echo "vault key not found" >&2
+      exit 1
+    fi
+    if [ "${FAKE_WARD_EMPTY-}" = 1 ]; then
+      exit 0
+    fi
+    printf 'A=sekret1\nB=sekret2\n'
+    ;;
+  *) exit 2 ;;
+esac
