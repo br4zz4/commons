@@ -75,7 +75,7 @@ commons_check_scope() {
   scope="$1"
   vault=$(commons_vault_for_env "$COMMONS_CURRENT_ENV")
   err=$(mktemp)
-  out=$(ward secrets "$scope" 2>"$err") && status=0 || status=$?
+  out=$(ward secrets --json "$scope" 2>"$err") && status=0 || status=$?
   if [ "$status" -ne 0 ]; then
     if grep -qiE 'key|chave|decrypt|WARD_KEY' "$err"; then
       rm -f "$err"
@@ -84,11 +84,19 @@ commons_check_scope() {
     out=""
   fi
   rm -f "$err"
-  [ -n "$out" ]
+  [ -n "$out" ] && [ "$out" != "{}" ]
 }
 
 commons_scope_names() {
-  ward secrets "$1" | sed -e 's/[[:space:]]*=.*//' -e 's/^[[:space:]]*//' | sed -e '/^$/d'
+  ward secrets --json "$1" | python3 -I -c 'import json, sys
+for name in json.load(sys.stdin):
+    print(name)'
+}
+
+commons_scope_missing() {
+  ward secrets --json "$1" | python3 -I -c 'import json, sys
+names = [name for name, value in json.load(sys.stdin).items() if value in ("", None, "CHANGE_ME")]
+print(" ".join(names))'
 }
 
 commons_dir() {
@@ -135,10 +143,6 @@ commons_prepare() {
   ENVIRONMENT="$COMMONS_CURRENT_ENV"
   TAG="${TAG-}"
   export MODULE ENVIRONMENT TAG
-}
-
-commons_scope_pairs() {
-  ward secrets "$1" | sed -e 's/^[[:space:]]*//'
 }
 
 commons_check_collision() {

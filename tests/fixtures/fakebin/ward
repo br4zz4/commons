@@ -27,14 +27,39 @@ case "$1" in
     exec "$@"
     ;;
   secrets)
+    shift
+    json=0
+    if [ "${1-}" = "--json" ]; then
+      json=1
+      shift
+    fi
     if [ "${FAKE_WARD_NOKEY-}" = 1 ]; then
       echo "vault key not found" >&2
       exit 1
     fi
+    if [ "$json" = 1 ]; then
+      if [ "${FAKE_WARD_EMPTY-}" = 1 ]; then
+        echo "{}"
+        exit 0
+      fi
+      pairs_for "$1" | python3 -I -c 'import json, sys
+out = {}
+for line in sys.stdin.read().splitlines():
+    if not line.strip():
+        continue
+    name, _, value = line.partition("=")
+    out[name.strip()] = value
+print(json.dumps(out))'
+      exit 0
+    fi
     if [ "${FAKE_WARD_EMPTY-}" = 1 ]; then
       exit 0
     fi
-    pairs_for "$2"
+    pairs_for "$1" | while IFS= read -r line; do
+      [ -n "$line" ] || continue
+      printf '\033[32m●\033[0m \033[1m%s\033[0m = %s\n' "${line%%=*}" "${line#*=}"
+    done
+    printf '\033[32m● active\033[0m \033[33m● overrides\033[0m\n'
     ;;
   *) exit 2 ;;
 esac

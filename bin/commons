@@ -122,7 +122,7 @@ cmd_secrets() {
   [ -n "$(commons_vault_for_env "$COMMONS_CURRENT_ENV")" ] || commons_die "projeto sem vault"
   code_scope=$(commons_scope "$module" code)
   commons_check_scope "$code_scope" || commons_die "escopo $code_scope vazio"
-  missing=$(commons_scope_pairs "$code_scope" | awk -F'=' '{ name=$1; sub(/[ \t]+$/, "", name); value=$0; sub(/^[^=]*=[ \t]*/, "", value); if (value == "" || value == "CHANGE_ME") printf "%s ", name }' | sed -e 's/ $//')
+  missing=$(commons_scope_missing "$code_scope")
   keys=$(commons_scope_names "$code_scope" | tr '\n' ' ' | sed -e 's/ $//')
   [ -z "$missing" ] || commons_die "sem valor: $missing"
   COMMONS_SECRET_KEYS="$keys"

@@ -448,6 +448,39 @@ t_keys_no_key_fails() {
   never_leaks
 }
 
+t_keys_clean_names() {
+  # arrange
+  # act
+  cm "$BIN" keys core
+  # assert
+  rc_ok
+  if grep -q "$(printf '\033')" "$C/out"; then diag "stdout com ANSI"; fi
+  if grep -qiE 'active|overrides|=' "$C/out"; then diag "stdout com legenda ou valor"; fi
+  [ "$(sort "$C/out" | tr '\n' ' ')" = "A B " ] || diag "stdout inesperado: $(tr '\n' '|' <"$C/out")"
+  never_leaks
+}
+
+t_secrets_value_with_equals_and_spaces() {
+  # arrange
+  # act
+  cm "FAKE_WARD_PAIRS=A=sekret x=y z\nB=" "$BIN" secrets core
+  # assert
+  rc_fail
+  err_has "commons: sem valor: B"
+  hook_not_ran
+  never_leaks
+}
+
+t_secrets_equals_value_ok() {
+  # arrange
+  # act
+  cm "FAKE_WARD_PAIRS=A=sekret1=x y\nB=sekret2 = z" "$BIN" secrets core
+  # assert
+  rc_ok
+  hook_has "ENVIRONMENT=remote"
+  never_leaks
+}
+
 t_keys_restricted_guard() {
   # arrange
   # act
@@ -1205,6 +1238,9 @@ run_case "keys imprime só os nomes, nunca os valores" t_keys_names_only
 run_case "keys via make core.keys" t_keys_via_make
 run_case "keys falha com escopo vazio" t_keys_empty_scope_fails
 run_case "keys falha sem a chave do vault" t_keys_no_key_fails
+run_case "keys: nomes limpos sem ANSI nem legenda" t_keys_clean_names
+run_case "secrets: valor com = e espaços não quebra a detecção" t_secrets_value_with_equals_and_spaces
+run_case "secrets: valores com = e espaços passam" t_secrets_equals_value_ok
 run_case "keys respeita a guarda de ambiente restrito" t_keys_restricted_guard
 run_case "run core console passa args e variáveis de paridade" t_run_args
 run_case "run usa ENV=remote quando pedido" t_run_env_remote
