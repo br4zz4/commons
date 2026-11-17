@@ -1,0 +1,6 @@
+{
+  "modules": {
+    "core": { "services": ["postgres", "redis"] },
+    "plain": { "code": { "dir": "modules/plain/app" } }
+  }
+}

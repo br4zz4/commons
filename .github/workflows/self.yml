@@ -1,0 +1,30 @@
+name: self
+on:
+  pull_request:
+  push:
+    branches: [ main ]
+permissions:
+  contents: read
+jobs:
+  unit-linux:
+    name: unit-linux
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: checkout
+        uses: actions/checkout@v6
+      - name: shellcheck
+        run: shellcheck -S warning bin/* lib/*.sh tests/*.sh
+      - name: suite
+        run: sh tests/run.sh
+  unit-macos:
+    name: unit-macos
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - name: checkout
+        uses: actions/checkout@v6
+      - name: shellcheck
+        run: brew install shellcheck && shellcheck -S warning bin/* lib/*.sh tests/*.sh
+      - name: suite
+        run: sh tests/run.sh

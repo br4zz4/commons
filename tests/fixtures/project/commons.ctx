@@ -1,0 +1,10 @@
+COMMONS_PROJECT=demo
+COMMONS_ENVS=dev,check,remote,prod
+COMMONS_ENV_LOCAL=dev
+COMMONS_ENV_CHECK=check
+COMMONS_ENV_REMOTE=remote
+COMMONS_VAULT=demo
+COMMONS_RESTRICTED_VAULT=demo::restricted
+COMMONS_RESTRICTED_ENVS=prod
+COMMONS_SCOPE={vault}:secrets.{module}.{side}.{env}
+COMMONS_REF=v1

@@ -1,0 +1,5 @@
+#!/bin/sh
+{
+  printf 'ENV=%s\n' "${ENV-unset}"
+  printf 'PWD=%s\n' "$(pwd -P)"
+} >"$HOOK_OUT"

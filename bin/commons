@@ -1,0 +1,94 @@
+#!/bin/sh
+set -eu
+
+COMMONS_HOME=$(cd "$(dirname "$0")/.." && pwd)
+COMMONS_ROOT="${COMMONS_ROOT:-$PWD}"
+COMMONS_ENV_ARG="${ENV-}"
+unset ENV
+export COMMONS_HOME COMMONS_ROOT
+
+. "$COMMONS_HOME/lib/print.sh"
+. "$COMMONS_HOME/lib/ctx.sh"
+
+side_of_step() {
+  case "$1" in
+    lint | audit | test | build) echo code ;;
+    validate | plan) echo infra ;;
+    *) return 1 ;;
+  esac
+}
+
+default_env_of_step() {
+  case "$1" in
+    lint | audit | test | validate) echo "$COMMONS_ENV_CHECK" ;;
+    build | plan) echo "$COMMONS_ENV_REMOTE" ;;
+  esac
+}
+
+run_script() {
+  dir="$1"
+  script="$2"
+  shift 2
+  [ -f "$script" ] || commons_die "$script não existe"
+  CI_CACHE_DIR="$dir/.ci-cache"
+  export CI_CACHE_DIR
+  if [ -x "$script" ]; then
+    commons_run_in "$dir" "$script" "$@"
+  fi
+  commons_run_in "$dir" sh "$script" "$@"
+}
+
+cmd_hook() {
+  module="$1"
+  step="$2"
+  shift 2
+  side=$(side_of_step "$step") || commons_die "step $step fora do vocabulário"
+  commons_prepare "$module" "$side" "$(default_env_of_step "$step")"
+  dir=$(commons_dir "$module" "$side")
+  run_script "$dir" "$dir/ci/checks/$step.sh" "$@"
+}
+
+cmd_run() {
+  module="$1"
+  name="$2"
+  shift 2
+  commons_prepare "$module" code "$COMMONS_ENV_LOCAL"
+  dir=$(commons_dir "$module" code)
+  run_script "$dir" "$dir/run/$name" "$@"
+}
+
+cmd_shell() {
+  module="$1"
+  commons_prepare "$module" code "$COMMONS_ENV_LOCAL"
+  dir=$(commons_dir "$module" code)
+  CI_CACHE_DIR="$dir/.ci-cache"
+  export CI_CACHE_DIR
+  commons_run_in "$dir" "${SHELL:-sh}"
+}
+
+cmd_keys() {
+  module="$1"
+  commons_validate_module "$module"
+  commons_resolve_env "$COMMONS_ENV_REMOTE"
+  commons_guard
+  [ -n "$(commons_vault_for_env "$COMMONS_CURRENT_ENV")" ] || commons_die "projeto sem vault"
+  scope=$(commons_scope "$module" code)
+  commons_check_scope "$scope" || commons_die "escopo $scope vazio"
+  commons_scope_names "$scope"
+}
+
+[ "$#" -ge 1 ] || commons_die "uso: commons <hook|run|shell|keys> <módulo> ..."
+command="$1"
+shift
+case "$command" in
+  help | -h | --help) ;;
+  *) commons_load_ctx ;;
+esac
+
+case "$command" in
+  hook) [ "$#" -ge 2 ] || commons_die "uso: commons hook <módulo> <step>"; cmd_hook "$@" ;;
+  run) [ "$#" -ge 2 ] || commons_die "uso: commons run <módulo> <nome>"; cmd_run "$@" ;;
+  shell) [ "$#" -ge 1 ] || commons_die "uso: commons shell <módulo>"; cmd_shell "$@" ;;
+  keys) [ "$#" -ge 1 ] || commons_die "uso: commons keys <módulo>"; cmd_keys "$@" ;;
+  *) commons_die "comando $command desconhecido" ;;
+esac

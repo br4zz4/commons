@@ -1,0 +1,12 @@
+# COMMONS_PROJECT=myproject
+# COMMONS_ENVS=development,test,staging,production
+# COMMONS_ENV_LOCAL=development
+# COMMONS_ENV_CHECK=test
+# COMMONS_ENV_REMOTE=staging
+# COMMONS_VAULT=myproject
+# COMMONS_RESTRICTED_VAULT=myproject::restricted
+# COMMONS_RESTRICTED_ENVS=production
+# COMMONS_SCOPE={vault}:secrets.{module}.{side}.{env}
+# COMMONS_GITHUB_SECRETS=WARD_KEY_MYPROJECT:.ward/myproject::default.key
+# COMMONS_REQUIRED_CHECK=check/pr
+# COMMONS_REF=v1
