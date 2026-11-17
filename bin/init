@@ -1,0 +1,64 @@
+#!/bin/sh
+set -eu
+
+COMMONS_HOME=$(cd "$(dirname "$0")/.." && pwd)
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+COMMONS_ROOT="$ROOT"
+export COMMONS_HOME COMMONS_ROOT
+
+. "$COMMONS_HOME/lib/print.sh"
+
+REL="${COMMONS_HOME#"$ROOT"/}"
+[ "$REL" != "$COMMONS_HOME" ] || commons_die "commons precisa estar dentro de $ROOT"
+
+cd "$ROOT"
+
+if [ ! -f Makefile ]; then
+  printf 'include %s/make/main.mk\n' "$REL" > Makefile
+  commons_info "Makefile criado"
+elif ! grep -q "$REL/make/main.mk" Makefile; then
+  commons_warn "Makefile sem 'include $REL/make/main.mk'"
+fi
+
+if [ ! -f commons.ctx ]; then
+  cp "$COMMONS_HOME/commons.ctx.example" commons.ctx
+  commons_info "commons.ctx criado"
+fi
+
+if [ ! -f compose.yml ]; then
+  includes=""
+  if [ -f .github/modules.json ]; then
+    for module in $(python3 -I "$COMMONS_HOME/lib/modules.py" "$ROOT" list); do
+      for service in $(python3 -I "$COMMONS_HOME/lib/modules.py" "$ROOT" services "$module"); do
+        case "$service" in
+          postgres) fragment=database ;;
+          redis) fragment=cache ;;
+          *) continue ;;
+        esac
+        case " $includes " in
+          *" $fragment "*) ;;
+          *) includes="$includes $fragment" ;;
+        esac
+      done
+    done
+  fi
+  if [ -n "$includes" ]; then
+    {
+      printf 'include:\n'
+      for fragment in $includes; do
+        printf '  - %s/compose/%s.yml\n' "$REL" "$fragment"
+      done
+      printf '#  - %s/compose/mail.yml\n' "$REL"
+    } > compose.yml
+  else
+    printf 'services: {}\n' > compose.yml
+  fi
+  commons_info "compose.yml criado"
+fi
+
+if [ ! -f .gitignore ] || ! grep -qx '.ci-cache/' .gitignore; then
+  printf '.ci-cache/\n' >> .gitignore
+  commons_info ".gitignore atualizado"
+fi
+
+"$COMMONS_HOME/bin/commons" conform || true
