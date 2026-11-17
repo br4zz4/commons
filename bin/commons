@@ -130,6 +130,34 @@ cmd_secrets() {
   commons_run_in "$infra" sh "$script" "$@"
 }
 
+compose_check() {
+  version=$(docker compose version --short 2>/dev/null) || commons_die "docker compose >= 2.20"
+  major=${version%%.*}
+  rest=${version#*.}
+  minor=${rest%%.*}
+  major=${major#v}
+  if [ "$major" -lt 2 ] || { [ "$major" -eq 2 ] && [ "$minor" -lt 20 ]; }; then
+    commons_die "docker compose >= 2.20"
+  fi
+  COMPOSE_PROJECT_NAME="$COMMONS_PROJECT"
+  export COMPOSE_PROJECT_NAME
+}
+
+cmd_up() {
+  compose_check
+  exec docker compose up -d --wait "$@"
+}
+
+cmd_down() {
+  compose_check
+  exec docker compose down --remove-orphans "$@"
+}
+
+cmd_logs() {
+  compose_check
+  exec docker compose logs -f "$@"
+}
+
 cmd_conform() {
   . "$COMMONS_HOME/lib/conform.sh"
   commons_conform
@@ -150,6 +178,9 @@ case "$command" in
   db) [ "$#" -ge 1 ] || commons_die "uso: commons db <módulo>"; cmd_db "$@" ;;
   remote) [ "$#" -ge 1 ] || commons_die "uso: commons remote <módulo>"; cmd_remote "$@" ;;
   secrets) [ "$#" -ge 1 ] || commons_die "uso: commons secrets <módulo>"; cmd_secrets "$@" ;;
+  up) cmd_up "$@" ;;
+  down) cmd_down "$@" ;;
+  logs) cmd_logs "$@" ;;
   conform) cmd_conform ;;
   keys) [ "$#" -ge 1 ] || commons_die "uso: commons keys <módulo>"; cmd_keys "$@" ;;
   *) commons_die "comando $command desconhecido" ;;

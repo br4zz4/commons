@@ -41,9 +41,15 @@ $(1).$(2):
 endef
 
 
-.PHONY: conform
+.PHONY: conform up down logs
 conform:
 	@$(COMMONS_BIN) conform
+up:
+	@$(COMMONS_BIN) up
+down:
+	@$(COMMONS_BIN) down
+logs:
+	@$(COMMONS_BIN) logs
 
 $(foreach module,$(COMMONS_MODULES),$(eval $(call COMMONS_MODULE_RULES,$(module))))
 

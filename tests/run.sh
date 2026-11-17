@@ -1269,6 +1269,490 @@ run_case "conform: compose com fragment existente" t_conform_compose_existing_fr
 run_case "conform: sem compose.yml é verde" t_conform_compose_absent_is_green
 run_case "conform: múltiplas violações juntas" t_conform_multiple_violations
 
+have_docker() {
+  command -v docker >/dev/null 2>&1 && PATH="$ORIG_PATH" docker compose version >/dev/null 2>&1
+}
+
+have_daemon() {
+  have_docker && PATH="$ORIG_PATH" docker info >/dev/null 2>&1
+}
+
+install_docker() {
+  cat >"$C/fakebin/docker" <<'SH'
+#!/bin/sh
+if [ "$1" = compose ] && [ "$2" = version ]; then
+  printf '%s\n' "${FAKE_COMPOSE_VERSION-2.27.0}"
+  exit 0
+fi
+printf 'docker %s\n' "$*" >>"$FAKE_LOG"
+printf 'COMPOSE_PROJECT_NAME=%s\n' "${COMPOSE_PROJECT_NAME-unset}" >>"$FAKE_LOG"
+SH
+  chmod +x "$C/fakebin/docker"
+}
+
+frag() {
+  printf '%s/compose/%s.yml' "$REPO" "$1"
+}
+
+frag_has() {
+  grep -qF -- "$2" "$(frag "$1")" || diag "$1.yml sem '$2'"
+}
+
+frag_lacks() {
+  ! grep -qiF -- "$2" "$(frag "$1")" || diag "$1.yml tem '$2' e não devia"
+}
+
+t_compose_config_valid() {
+  # arrange
+  if ! have_docker; then printf 'ok - skip: sem docker compose\n'; return; fi
+  # act
+  for f in database cache mail; do
+    PATH="$ORIG_PATH" docker compose -f "$(frag "$f")" config -q >"$C/out" 2>"$C/err"
+    RC=$?
+    # assert
+    [ "$RC" -eq 0 ] || diag "$f.yml inválido: $(tr '\n' '|' <"$C/err")"
+  done
+}
+
+t_compose_database_contract() {
+  # arrange
+  # act
+  # assert
+  frag_has database "image: postgres:16-alpine"
+  frag_has database "POSTGRES_USER: postgres"
+  frag_has database "POSTGRES_PASSWORD: postgres"
+  frag_has database "\"\${COMMONS_DB_PORT:-5432}:5432\""
+  frag_has database "database_data:/var/lib/postgresql/data"
+  frag_has database "healthcheck:"
+  frag_has database "pg_isready"
+  frag_has database "  database:"
+}
+
+t_compose_cache_contract() {
+  # arrange
+  # act
+  # assert
+  frag_has cache "image: redis:7-alpine"
+  frag_has cache "\"\${COMMONS_CACHE_PORT:-6379}:6379\""
+  frag_has cache "healthcheck:"
+  frag_has cache "redis-cli"
+  frag_has cache "  cache:"
+}
+
+t_compose_mail_contract() {
+  # arrange
+  # act
+  # assert
+  frag_has mail "image: axllent/mailpit:v1"
+  frag_has mail "\"\${COMMONS_MAIL_PORT:-8025}:8025\""
+  frag_has mail "\"\${COMMONS_SMTP_PORT:-1025}:1025\""
+  frag_has mail "healthcheck:"
+  frag_has mail "  mail:"
+}
+
+t_compose_fragments_are_generic() {
+  # arrange
+  # act
+  # assert
+  for f in database cache mail; do
+    frag_lacks "$f" "DATABASE_URL"
+    frag_lacks "$f" "demo"
+    frag_lacks "$f" "name:"
+    frag_lacks "$f" "production"
+    frag_lacks "$f" "staging"
+    frag_lacks "$f" "development"
+    frag_lacks "$f" "COMMONS_PROJECT"
+  done
+}
+
+t_up_runs_compose_up_wait() {
+  # arrange
+  install_docker
+  # act
+  cm "$BIN" up
+  # assert
+  rc_ok
+  log_has "docker compose up -d --wait"
+  log_has "COMPOSE_PROJECT_NAME=demo"
+}
+
+t_down_without_volumes() {
+  # arrange
+  install_docker
+  # act
+  cm "$BIN" down
+  # assert
+  rc_ok
+  log_has "docker compose down --remove-orphans"
+  log_lacks " -v"
+  log_lacks "--volumes"
+  log_has "COMPOSE_PROJECT_NAME=demo"
+}
+
+t_logs_follows() {
+  # arrange
+  install_docker
+  # act
+  cm "$BIN" logs
+  # assert
+  rc_ok
+  log_has "docker compose logs -f"
+  log_has "COMPOSE_PROJECT_NAME=demo"
+}
+
+t_up_forwards_args() {
+  # arrange
+  install_docker
+  # act
+  cm "$BIN" up database
+  # assert
+  rc_ok
+  log_has "docker compose up -d --wait database"
+}
+
+t_compose_old_version_fails() {
+  # arrange
+  install_docker
+  for sub in up down logs; do
+    # act
+    cm FAKE_COMPOSE_VERSION=2.19.0 "$BIN" "$sub"
+    # assert
+    rc_fail
+    err_has "commons: docker compose >= 2.20"
+    log_lacks "docker compose $sub"
+  done
+}
+
+t_compose_v1_version_fails() {
+  # arrange
+  install_docker
+  # act
+  cm FAKE_COMPOSE_VERSION=1.29.2 "$BIN" up
+  # assert
+  rc_fail
+  err_has "commons: docker compose >= 2.20"
+}
+
+t_compose_min_version_ok() {
+  # arrange
+  install_docker
+  # act
+  cm FAKE_COMPOSE_VERSION=2.20.0 "$BIN" up
+  # assert
+  rc_ok
+  log_has "docker compose up -d --wait"
+}
+
+t_compose_without_docker_fails() {
+  # arrange
+  mkdir "$C/emptybin"
+  for t in sh env dirname cat grep tr sed awk python3 git uname mktemp; do
+    src=$(PATH="$ORIG_PATH" command -v "$t") && ln -s "$src" "$C/emptybin/$t"
+  done
+  # act
+  ( cd "$P" && PATH="$C/emptybin" "$BIN" up ) </dev/null >"$C/out" 2>"$C/err"
+  RC=$?
+  # assert
+  rc_fail
+  err_has "commons: docker compose >= 2.20"
+}
+
+t_make_up() {
+  # arrange
+  install_docker
+  # act
+  cm make --no-print-directory up
+  # assert
+  rc_ok
+  log_has "docker compose up -d --wait"
+  log_has "COMPOSE_PROJECT_NAME=demo"
+}
+
+t_make_down() {
+  # arrange
+  install_docker
+  # act
+  cm make --no-print-directory down
+  # assert
+  rc_ok
+  log_has "docker compose down --remove-orphans"
+  log_lacks "--volumes"
+}
+
+t_make_logs() {
+  # arrange
+  install_docker
+  # act
+  cm make --no-print-directory logs
+  # assert
+  rc_ok
+  log_has "docker compose logs -f"
+}
+
+mk_init_project() {
+  I="$C/initproj"
+  mkdir -p "$I/.commons"
+  ( cd "$I" && git init -q . )
+  cp -R "$REPO/bin" "$REPO/lib" "$REPO/make" "$REPO/compose" "$REPO/commons.ctx.example" "$I/.commons/"
+}
+
+init_run() {
+  ( cd "$I" && env "$@" ) </dev/null >"$C/out" 2>"$C/err"
+  RC=$?
+}
+
+init_modules() {
+  mkdir -p "$I/.github"
+  cp "$HERE/fixtures/project/.github/modules.json" "$I/.github/modules.json"
+}
+
+init_sum() {
+  ( cd "$I" && find . -path ./.commons -prune -o -path ./.git -prune -o -type f -print | LC_ALL=C sort | while read -r f; do cksum "$f"; done )
+}
+
+file_has() {
+  grep -qxF -- "$2" "$1" || diag "$1 sem a linha '$2'; conteúdo: $(tr '\n' '|' <"$1")"
+}
+
+t_init_creates_files() {
+  # arrange
+  mk_init_project
+  init_modules
+  # act
+  init_run .commons/bin/init
+  # assert
+  rc_ok
+  file_has "$I/Makefile" "include .commons/make/main.mk"
+  cmp -s "$I/commons.ctx" "$I/.commons/commons.ctx.example" || diag "commons.ctx difere do example"
+  file_has "$I/compose.yml" "include:"
+  file_has "$I/compose.yml" "  - .commons/compose/database.yml"
+  file_has "$I/compose.yml" "  - .commons/compose/cache.yml"
+  file_has "$I/compose.yml" "#  - .commons/compose/mail.yml"
+  file_has "$I/.gitignore" ".ci-cache/"
+}
+
+t_init_runs_conform_and_lists_missing() {
+  # arrange
+  mk_init_project
+  init_modules
+  # act
+  init_run .commons/bin/init
+  # assert
+  rc_ok
+  [ -s "$C/err" ] || [ -s "$C/out" ] || diag "init não listou o que falta"
+  grep -q "commons.ctx" "$C/out" "$C/err" || diag "saída não cita commons.ctx"
+}
+
+t_init_second_run_changes_nothing() {
+  # arrange
+  mk_init_project
+  init_modules
+  init_run .commons/bin/init
+  init_sum >"$C/before"
+  # act
+  init_run .commons/bin/init
+  init_sum >"$C/after"
+  # assert
+  rc_ok
+  cmp -s "$C/before" "$C/after" || diag "segunda execução alterou arquivos"
+  [ -s "$C/before" ] || diag "nenhum arquivo criado"
+  [ "$(grep -cx '.ci-cache/' "$I/.gitignore")" -eq 1 ] || diag ".ci-cache/ duplicado"
+}
+
+t_init_second_run_changes_nothing_with_user_files() {
+  # arrange
+  mk_init_project
+  init_modules
+  printf 'node_modules/\n' >"$I/.gitignore"
+  init_run .commons/bin/init
+  init_sum >"$C/before"
+  # act
+  init_run .commons/bin/init
+  init_sum >"$C/after"
+  # assert
+  rc_ok
+  cmp -s "$C/before" "$C/after" || diag "segunda execução alterou arquivos"
+  file_has "$I/.gitignore" "node_modules/"
+}
+
+t_init_existing_makefile_untouched() {
+  # arrange
+  mk_init_project
+  init_modules
+  printf 'all:\n\t@echo hi\n' >"$I/Makefile"
+  cksum "$I/Makefile" >"$C/before"
+  # act
+  init_run .commons/bin/init
+  # assert
+  rc_ok
+  cksum "$I/Makefile" >"$C/after"
+  cmp -s "$C/before" "$C/after" || diag "Makefile alterado"
+  err_has "Makefile sem 'include .commons/make/main.mk'"
+}
+
+t_init_existing_makefile_with_include_no_warning() {
+  # arrange
+  mk_init_project
+  init_modules
+  printf 'include .commons/make/main.mk\nall:\n\t@echo hi\n' >"$I/Makefile"
+  # act
+  init_run .commons/bin/init
+  # assert
+  rc_ok
+  ! grep -qF "Makefile sem" "$C/err" || diag "avisou com include presente"
+}
+
+t_init_without_modules_json() {
+  # arrange
+  mk_init_project
+  # act
+  init_run .commons/bin/init
+  # assert
+  rc_ok
+  file_has "$I/compose.yml" "services: {}"
+}
+
+t_init_without_services() {
+  # arrange
+  mk_init_project
+  mkdir -p "$I/.github"
+  printf '{"modules":{"core":{}}}\n' >"$I/.github/modules.json"
+  # act
+  init_run .commons/bin/init
+  # assert
+  rc_ok
+  file_has "$I/compose.yml" "services: {}"
+}
+
+t_init_only_postgres() {
+  # arrange
+  mk_init_project
+  mkdir -p "$I/.github"
+  printf '{"modules":{"core":{"services":["postgres"]}}}\n' >"$I/.github/modules.json"
+  # act
+  init_run .commons/bin/init
+  # assert
+  rc_ok
+  file_has "$I/compose.yml" "  - .commons/compose/database.yml"
+  ! grep -qx "  - .commons/compose/cache.yml" "$I/compose.yml" || diag "cache incluído sem redis"
+}
+
+t_init_existing_compose_untouched() {
+  # arrange
+  mk_init_project
+  init_modules
+  printf 'services:\n  app:\n    image: x\n' >"$I/compose.yml"
+  cksum "$I/compose.yml" >"$C/before"
+  # act
+  init_run .commons/bin/init
+  # assert
+  rc_ok
+  cksum "$I/compose.yml" >"$C/after"
+  cmp -s "$C/before" "$C/after" || diag "compose.yml alterado"
+}
+
+t_init_existing_ctx_untouched() {
+  # arrange
+  mk_init_project
+  init_modules
+  printf 'COMMONS_PROJECT=mine\n' >"$I/commons.ctx"
+  # act
+  init_run .commons/bin/init
+  # assert
+  rc_ok
+  file_has "$I/commons.ctx" "COMMONS_PROJECT=mine"
+}
+
+t_init_outside_project_root_fails() {
+  # arrange
+  mk_init_project
+  rm -rf "$I/.git"
+  mkdir -p "$C/outer"
+  ( cd "$C/outer" && git init -q . )
+  mv "$I" "$C/outer/inner"
+  I="$C/outer/inner"
+  # act
+  ( cd "$I" && .commons/bin/init ) </dev/null >"$C/out" 2>"$C/err"
+  RC=$?
+  # assert
+  rc_ok
+  [ -f "$C/outer/Makefile" ] || diag "esperava Makefile na raiz do repo git"
+}
+
+t_init_generated_compose_is_valid() {
+  # arrange
+  if ! have_docker; then printf 'ok - skip: sem docker compose\n'; return; fi
+  mk_init_project
+  init_modules
+  init_run .commons/bin/init
+  # act
+  ( cd "$I" && PATH="$ORIG_PATH" docker compose config -q ) >"$C/out" 2>"$C/err"
+  RC=$?
+  # assert
+  rc_ok
+}
+
+t_compose_real_up_down_keeps_volume() {
+  # arrange
+  if ! have_daemon; then printf 'ok - skip: sem daemon docker\n'; return; fi
+  port=$(python3 -I -c 'import socket
+a=socket.socket(); a.bind(("127.0.0.1",0)); b=socket.socket(); b.bind(("127.0.0.1",0))
+print(a.getsockname()[1], b.getsockname()[1])')
+  cport=${port% *}
+  dport=${port#* }
+  mk_init_project
+  init_modules
+  printf 'COMMONS_PROJECT=c3test%s\nCOMMONS_ENVS=dev,check,remote\nCOMMONS_ENV_LOCAL=dev\nCOMMONS_ENV_CHECK=check\nCOMMONS_ENV_REMOTE=remote\nCOMMONS_REF=v1\n' "$$" >"$I/commons.ctx"
+  printf 'include:\n  - .commons/compose/database.yml\n  - .commons/compose/cache.yml\n' >"$I/compose.yml"
+  proj="c3test$$"
+  PATH="$ORIG_PATH"
+  # act
+  init_run COMMONS_CACHE_PORT="$cport" COMMONS_DB_PORT="$dport" .commons/bin/commons up
+  up_rc=$RC
+  docker volume ls -q --filter "name=${proj}_database_data" >"$C/vol_up" 2>/dev/null
+  init_run COMMONS_CACHE_PORT="$cport" COMMONS_DB_PORT="$dport" .commons/bin/commons down
+  down_rc=$RC
+  docker volume ls -q --filter "name=${proj}_database_data" >"$C/vol_down" 2>/dev/null
+  docker volume rm "${proj}_database_data" >/dev/null 2>&1
+  PATH="$C/fakebin:$ORIG_PATH"
+  # assert
+  [ "$up_rc" -eq 0 ] || diag "up falhou rc=$up_rc"
+  [ "$down_rc" -eq 0 ] || diag "down falhou rc=$down_rc"
+  grep -qx "${proj}_database_data" "$C/vol_up" || diag "volume não existia após up"
+  grep -qx "${proj}_database_data" "$C/vol_down" || diag "down removeu o volume database_data"
+}
+
+run_case "compose: cada fragment passa em config -q" t_compose_config_valid
+run_case "compose: database.yml conforme a tabela" t_compose_database_contract
+run_case "compose: cache.yml conforme a tabela" t_compose_cache_contract
+run_case "compose: mail.yml conforme a tabela" t_compose_mail_contract
+run_case "compose: fragments sem projeto, ambiente nem DATABASE_URL" t_compose_fragments_are_generic
+run_case "up: compose up -d --wait com COMPOSE_PROJECT_NAME" t_up_runs_compose_up_wait
+run_case "down: --remove-orphans sem volumes" t_down_without_volumes
+run_case "logs: compose logs -f" t_logs_follows
+run_case "up: repassa argumentos" t_up_forwards_args
+run_case "compose < 2.20 falha em up/down/logs" t_compose_old_version_fails
+run_case "compose 1.x falha" t_compose_v1_version_fails
+run_case "compose 2.20.0 é aceito" t_compose_min_version_ok
+run_case "up sem docker falha com a mensagem de versão" t_compose_without_docker_fails
+run_case "make up" t_make_up
+run_case "make down" t_make_down
+run_case "make logs" t_make_logs
+run_case "init: cria Makefile, ctx, compose.yml e .gitignore" t_init_creates_files
+run_case "init: roda conform e lista o que falta sem falhar" t_init_runs_conform_and_lists_missing
+run_case "init: segunda execução não altera nenhum arquivo" t_init_second_run_changes_nothing
+run_case "init: segunda execução preserva .gitignore existente" t_init_second_run_changes_nothing_with_user_files
+run_case "init: Makefile próprio sem include fica intocado e avisa" t_init_existing_makefile_untouched
+run_case "init: Makefile com include não avisa" t_init_existing_makefile_with_include_no_warning
+run_case "init: sem modules.json gera services vazio" t_init_without_modules_json
+run_case "init: módulos sem services geram services vazio" t_init_without_services
+run_case "init: só postgres inclui só database" t_init_only_postgres
+run_case "init: compose.yml existente intocado" t_init_existing_compose_untouched
+run_case "init: commons.ctx existente intocado" t_init_existing_ctx_untouched
+run_case "init: usa a raiz git quando commons está em subdiretório" t_init_outside_project_root_fails
+run_case "init: compose.yml gerado é válido" t_init_generated_compose_is_valid
+run_case "compose real: down mantém o volume database_data" t_compose_real_up_down_keeps_volume
+
 printf '1..%s\n' "$N"
 printf '# passed %s, failed %s\n' "$PASSED" "$FAILED"
 [ "$FAILED" -eq 0 ]
