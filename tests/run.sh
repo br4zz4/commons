@@ -1722,6 +1722,303 @@ print(a.getsockname()[1], b.getsockname()[1])')
   grep -qx "${proj}_database_data" "$C/vol_down" || diag "down removeu o volume database_data"
 }
 
+mk_gh_project() {
+  GR="$C/remote.git"
+  git init -q --bare -b main "$GR"
+  ( cd "$P" && git init -q -b main . && git remote add origin "$GR" )
+  if [ "${1-}" = workflow ]; then
+    mkdir -p "$P/.github/workflows"
+    printf 'name: check/pr\non: pull_request\n' >"$P/.github/workflows/pr.yml"
+    ( cd "$P" && git add .github/workflows/pr.yml )
+  else
+    printf 'x\n' >"$P/readme.txt"
+    ( cd "$P" && git add readme.txt )
+  fi
+  ( cd "$P" && git -c user.name=t -c user.email=t@t commit -q -m init && git push -q origin main && git fetch -q origin )
+}
+
+gh_ctx() {
+  printf '%s\n' "$@" >>"$P/commons.ctx"
+}
+
+stdin_has() {
+  grep -qF -- "$1" "$FAKE_LOG.stdin" 2>/dev/null || diag "stdin do gh sem '$1'; stdin: $(tr '\n' '|' <"$FAKE_LOG.stdin" 2>/dev/null)"
+}
+
+stdin_lacks() {
+  ! grep -qF -- "$1" "$FAKE_LOG.stdin" 2>/dev/null || diag "stdin do gh tem '$1' e não devia"
+}
+
+gh_count() {
+  grep -cF -- "$1" "$FAKE_LOG" || true
+}
+
+t_gh_secrets_set() {
+  # arrange
+  printf 'sekret-token\n' >"$P/token.key"
+  printf 'sekret-other\n' >"$P/other.key"
+  gh_ctx "COMMONS_GITHUB_SECRETS=TOKEN:token.key,OTHER:other.key"
+  # act
+  cm "$BIN" github-setup
+  # assert
+  rc_ok
+  log_has "gh secret set TOKEN -R demo/repo"
+  log_has "gh secret set OTHER -R demo/repo"
+  stdin_has "secret set TOKEN -R demo/repo	sekret-token"
+  stdin_has "secret set OTHER -R demo/repo	sekret-other"
+  never_leaks
+}
+
+t_gh_secrets_missing_file() {
+  # arrange
+  printf 'sekret-other\n' >"$P/other.key"
+  gh_ctx "COMMONS_GITHUB_SECRETS=GONE:gone.key,OTHER:other.key"
+  # act
+  cm "$BIN" github-setup
+  # assert
+  rc_ok
+  err_has "secret GONE pulado"
+  log_lacks "gh secret set GONE"
+  log_has "gh secret set OTHER -R demo/repo"
+  never_leaks
+}
+
+t_gh_without_secrets_var() {
+  # arrange
+  # act
+  cm "$BIN" github-setup
+  # assert
+  rc_ok
+  log_lacks "gh secret set"
+}
+
+t_gh_merge_patch() {
+  # arrange
+  # act
+  cm "$BIN" github-setup
+  # assert
+  rc_ok
+  log_has "gh api -X PATCH repos/demo/repo"
+  log_has "allow_merge_commit=false"
+  log_has "allow_squash_merge=true"
+  log_has "allow_rebase_merge=true"
+  log_has "delete_branch_on_merge=true"
+}
+
+t_gh_ruleset_deferred() {
+  # arrange
+  mk_gh_project
+  gh_ctx "COMMONS_REQUIRED_CHECK=check/pr"
+  # act
+  cm "$BIN" github-setup
+  # assert
+  rc_ok
+  err_has "ruleset adiado: nenhum workflow em main declara check/pr"
+  log_lacks "-X POST"
+  log_lacks "-X PUT"
+  log_lacks "/rulesets"
+}
+
+t_gh_ruleset_created() {
+  # arrange
+  mk_gh_project workflow
+  gh_ctx "COMMONS_REQUIRED_CHECK=check/pr"
+  # act
+  cm "$BIN" github-setup
+  # assert
+  rc_ok
+  log_has "gh api -X POST repos/demo/repo/rulesets --input -"
+  log_lacks "-X PUT"
+  stdin_has '"name":"commons-default-branch"'
+  stdin_has '"context":"check/pr"'
+  stdin_has '"integration_id":15368'
+  stdin_has '"strict_required_status_checks_policy":true'
+}
+
+t_gh_ruleset_idempotent() {
+  # arrange
+  mk_gh_project workflow
+  gh_ctx "COMMONS_REQUIRED_CHECK=check/pr"
+  # act
+  cm "$BIN" github-setup
+  rc_ok
+  cm GH_RULESET_ID=7 "$BIN" github-setup
+  # assert
+  rc_ok
+  log_has "gh api -X PUT repos/demo/repo/rulesets/7 --input -"
+  [ "$(gh_count '-X POST')" -eq 1 ] || diag "ruleset duplicado: $(gh_count '-X POST') POSTs"
+  stdin_has "-X PUT repos/demo/repo/rulesets/7 --input -	{"
+}
+
+t_gh_ruleset_existing_put_only() {
+  # arrange
+  mk_gh_project workflow
+  gh_ctx "COMMONS_REQUIRED_CHECK=check/pr"
+  # act
+  cm GH_RULESET_ID=42 "$BIN" github-setup
+  # assert
+  rc_ok
+  log_has "gh api -X PUT repos/demo/repo/rulesets/42 --input -"
+  log_lacks "-X POST"
+}
+
+t_gh_no_required_check() {
+  # arrange
+  mk_gh_project workflow
+  # act
+  cm GH_RULESET_ID=7 "$BIN" github-setup
+  # assert
+  rc_ok
+  log_lacks "/rulesets"
+  log_lacks "-X POST"
+  log_lacks "-X PUT"
+  log_has "gh api -X PATCH repos/demo/repo"
+}
+
+t_gh_make_target() {
+  # arrange
+  printf 'sekret-token\n' >"$P/token.key"
+  gh_ctx "COMMONS_GITHUB_SECRETS=TOKEN:token.key"
+  # act
+  cm make --no-print-directory github.setup
+  # assert
+  rc_ok
+  log_has "gh secret set TOKEN -R demo/repo"
+  log_has "gh api -X PATCH repos/demo/repo"
+  never_leaks
+}
+
+mk_commons_clone() {
+  CO="$C/commons-origin.git"
+  CW="$C/commons-work"
+  CL="$C/commons-clone"
+  git init -q --bare -b main "$CO"
+  git init -q -b main "$CW"
+  mkdir -p "$CW/bin"
+  cp -R "$REPO/bin" "$REPO/lib" "$REPO/make" "$REPO/compose" "$REPO/commons.ctx.example" "$CW/"
+  ( cd "$CW" && git remote add origin "$CO" && git add . \
+    && git -c user.name=t -c user.email=t@t commit -q -m one && git push -q origin main )
+  git clone -q "$CO" "$CL"
+  printf 'two\n' >"$CW/two.txt"
+  ( cd "$CW" && git add two.txt && git -c user.name=t -c user.email=t@t commit -q -m two \
+    && git tag v1 && git push -q origin main && git push -q origin v1 )
+  git -C "$CL" rev-parse -q --verify refs/tags/v1 >/dev/null 2>&1 && diag "clone já tinha a tag v1"
+  git -C "$CL" -c user.name=t -c user.email=t@t reset -q --hard HEAD~0
+}
+
+update_head_on_tag() {
+  head=$(git -C "$CL" rev-parse HEAD)
+  tag=$(git -C "$CL" rev-parse -q --verify 'refs/tags/v1^{commit}' 2>/dev/null)
+  [ -n "$tag" ] || diag "clone sem a tag v1 após update"
+  [ "$head" = "$tag" ] || diag "HEAD $head não está na tag v1 ($tag)"
+}
+
+t_update_bin() {
+  # arrange
+  mk_commons_clone
+  # act
+  cm "$CL/bin/commons" update
+  # assert
+  rc_ok
+  update_head_on_tag
+}
+
+t_update_make() {
+  # arrange
+  mk_commons_clone
+  rm "$P/.commons"
+  ln -s "$CL" "$P/.commons"
+  # act
+  cm make --no-print-directory commons.update
+  # assert
+  rc_ok
+  update_head_on_tag
+}
+
+t_update_uses_ctx_ref() {
+  # arrange
+  mk_commons_clone
+  ( cd "$CW" && git tag v2 HEAD~1 && git push -q origin v2 )
+  ctx_without COMMONS_REF
+  printf 'COMMONS_REF=v2\n' >>"$P/commons.ctx"
+  # act
+  cm "$CL/bin/commons" update
+  # assert
+  rc_ok
+  [ "$(git -C "$CL" rev-parse HEAD)" = "$(git -C "$CW" rev-parse 'v2^{commit}')" ] || diag "HEAD não está em v2"
+}
+
+t_help_lists_everything() {
+  # arrange
+  printf 'deploy: ## deploys the thing\n\t@true\n' >>"$P/Makefile"
+  mkdir -p "$P/.project/make"
+  printf 'extra: ## extra target\n\t@true\n' >"$P/.project/make/extra.mk"
+  # act
+  cm "$BIN" help
+  # assert
+  rc_ok
+  grep -qF "<m>.lint" "$C/out" || diag "help sem o comando <m>.lint"
+  grep -qF "up|down|logs" "$C/out" || diag "help sem up|down|logs"
+  grep -qF "github.setup" "$C/out" || diag "help sem github.setup"
+  grep -qF "commons.update" "$C/out" || diag "help sem commons.update"
+  out_has "module core"
+  out_has "module plain"
+  out_has "  core.console"
+  out_has "project"
+  out_has "deploy  deploys the thing"
+  out_has "extra  extra target"
+}
+
+t_help_without_ctx() {
+  # arrange
+  rm "$P/commons.ctx"
+  # act
+  cm "$BIN" help
+  # assert
+  rc_ok
+  grep -qF "github.setup" "$C/out" || diag "help sem github.setup"
+  out_has "module core"
+}
+
+t_help_empty_dir_without_ctx() {
+  # arrange
+  mkdir -p "$C/empty"
+  # act
+  ( cd "$C/empty" && "$BIN" help ) </dev/null >"$C/out" 2>"$C/err"
+  RC=$?
+  # assert
+  rc_ok
+  grep -qF "commands (make):" "$C/out" || diag "help sem cabeçalho"
+}
+
+t_help_flags() {
+  # arrange
+  # act
+  cm "$BIN" --help
+  # assert
+  rc_ok
+  grep -qF "commands (make):" "$C/out" || diag "--help sem cabeçalho"
+}
+
+t_make_default_goal_help() {
+  # arrange
+  # act
+  cm make --no-print-directory
+  # assert
+  rc_ok
+  grep -qF "commands (make):" "$C/out" || diag "make sem alvo não rodou help"
+  out_has "  core.console"
+}
+
+t_make_help_target() {
+  # arrange
+  # act
+  cm make --no-print-directory help
+  # assert
+  rc_ok
+  out_has "module core"
+}
+
 run_case "compose: cada fragment passa em config -q" t_compose_config_valid
 run_case "compose: database.yml conforme a tabela" t_compose_database_contract
 run_case "compose: cache.yml conforme a tabela" t_compose_cache_contract
@@ -1752,6 +2049,25 @@ run_case "init: commons.ctx existente intocado" t_init_existing_ctx_untouched
 run_case "init: usa a raiz git quando commons está em subdiretório" t_init_outside_project_root_fails
 run_case "init: compose.yml gerado é válido" t_init_generated_compose_is_valid
 run_case "compose real: down mantém o volume database_data" t_compose_real_up_down_keeps_volume
+run_case "github.setup: gh secret set por par com a chave no stdin" t_gh_secrets_set
+run_case "github.setup: arquivo de secret ausente avisa e segue" t_gh_secrets_missing_file
+run_case "github.setup: sem COMMONS_GITHUB_SECRETS não grava secret" t_gh_without_secrets_var
+run_case "github.setup: PATCH de merge settings" t_gh_merge_patch
+run_case "github.setup: ruleset adiado sem workflow na default" t_gh_ruleset_deferred
+run_case "github.setup: ruleset criado com workflow na default" t_gh_ruleset_created
+run_case "github.setup: segunda execução faz PUT no mesmo id" t_gh_ruleset_idempotent
+run_case "github.setup: ruleset existente só recebe PUT" t_gh_ruleset_existing_put_only
+run_case "github.setup: sem COMMONS_REQUIRED_CHECK não toca rulesets" t_gh_no_required_check
+run_case "make github.setup" t_gh_make_target
+run_case "update: bin faz fetch --tags e checkout da tag" t_update_bin
+run_case "update: make commons.update" t_update_make
+run_case "update: usa COMMONS_REF do ctx" t_update_uses_ctx_ref
+run_case "help: comandos, módulos, run/* e alvos ## do projeto" t_help_lists_everything
+run_case "help: funciona sem commons.ctx" t_help_without_ctx
+run_case "help: funciona em diretório vazio" t_help_empty_dir_without_ctx
+run_case "help: --help" t_help_flags
+run_case "make sem alvo executa help" t_make_default_goal_help
+run_case "make help" t_make_help_target
 
 printf '1..%s\n' "$N"
 printf '# passed %s, failed %s\n' "$PASSED" "$FAILED"

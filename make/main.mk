@@ -3,6 +3,10 @@ COMMONS_BIN := $(COMMONS_MK_DIR)/../bin/commons
 COMMONS_PROJECT_ROOT := $(CURDIR)
 COMMONS_RESERVED := lint audit test build validate plan shell db keys remote secrets
 
+ifeq ($(strip $(.DEFAULT_GOAL)),)
+.DEFAULT_GOAL := help
+endif
+
 export ENV
 export CONFIRM
 
@@ -41,7 +45,13 @@ $(1).$(2):
 endef
 
 
-.PHONY: conform up down logs
+.PHONY: conform up down logs help github.setup commons.update
+help:
+	@$(COMMONS_BIN) help
+github.setup:
+	@$(COMMONS_BIN) github-setup
+commons.update:
+	@$(COMMONS_BIN) update
 conform:
 	@$(COMMONS_BIN) conform
 up:
