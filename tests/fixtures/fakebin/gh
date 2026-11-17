@@ -1,0 +1,15 @@
+#!/bin/sh
+printf 'gh %s\n' "$*" >>"$FAKE_LOG"
+case "$*" in
+  "secret set"* | *"--input -"*)
+    printf '%s\t' "$*" >>"$FAKE_LOG.stdin"
+    cat >>"$FAKE_LOG.stdin"
+    printf '\n' >>"$FAKE_LOG.stdin"
+    ;;
+esac
+case "$*" in
+  "repo view --json nameWithOwner"*) printf '%s\n' "${GH_REPO-demo/repo}" ;;
+  "repo view"*defaultBranchRef*) printf '%s\n' "${GH_DEFAULT_BRANCH-main}" ;;
+  "api repos/"*"/rulesets --jq"*) printf '%s\n' "${GH_RULESET_ID-}" ;;
+esac
+exit 0

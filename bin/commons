@@ -158,6 +158,43 @@ cmd_logs() {
   exec docker compose logs -f "$@"
 }
 
+cmd_github_setup() {
+  . "$COMMONS_HOME/lib/github.sh"
+  commons_github_setup
+}
+
+cmd_update() {
+  git -C "$COMMONS_HOME" fetch --tags
+  git -C "$COMMONS_HOME" checkout "$COMMONS_REF"
+}
+
+cmd_help() {
+  printf 'commands (make):\n'
+  printf '  <m>.lint|audit|test|build|validate|plan  run the module hook\n'
+  printf '  <m>.<name>                               run <code>/run/<name>\n'
+  printf '  <m>.shell|db|keys|remote|secrets         shell, psql, key names, remote hook, secret push\n'
+  printf '  up|down|logs                             compose services\n'
+  printf '  conform|github.setup|commons.update      project checks and maintenance\n'
+  [ -f "$COMMONS_ROOT/.github/modules.json" ] || return 0
+  for module in $(python3 -I "$COMMONS_HOME/lib/modules.py" "$COMMONS_ROOT" list); do
+    dir=$(python3 -I "$COMMONS_HOME/lib/modules.py" "$COMMONS_ROOT" dir "$module" code)
+    printf '\nmodule %s\n' "$module"
+    for script in "$COMMONS_ROOT/$dir"/run/*; do
+      [ -e "$script" ] || continue
+      printf '  %s.%s\n' "$module" "$(basename "$script")"
+    done
+  done
+  files=""
+  [ -f "$COMMONS_ROOT/Makefile" ] && files="$COMMONS_ROOT/Makefile"
+  for file in "$COMMONS_ROOT"/.project/make/*.mk; do
+    [ -f "$file" ] && files="$files $file"
+  done
+  [ -n "$files" ] || return 0
+  # shellcheck disable=SC2086
+  targets=$(grep -hE '^[A-Za-z0-9_.-]+:.*##' $files | sed -e 's/:.*##[[:space:]]*/  /')
+  [ -z "$targets" ] || printf '\nproject\n%s\n' "$targets"
+}
+
 cmd_conform() {
   . "$COMMONS_HOME/lib/conform.sh"
   commons_conform
@@ -181,6 +218,9 @@ case "$command" in
   up) cmd_up "$@" ;;
   down) cmd_down "$@" ;;
   logs) cmd_logs "$@" ;;
+  github-setup) cmd_github_setup ;;
+  update) cmd_update ;;
+  help | -h | --help) cmd_help ;;
   conform) cmd_conform ;;
   keys) [ "$#" -ge 1 ] || commons_die "uso: commons keys <módulo>"; cmd_keys "$@" ;;
   *) commons_die "comando $command desconhecido" ;;
