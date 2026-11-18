@@ -106,13 +106,17 @@ prepare_ops() {
   fi
   CI_CACHE_DIR="$infra/.ci-cache"
   export CI_CACHE_DIR
+  if [ -n "$COMMONS_SCOPES" ] && [ -n "${code_scope-}" ]; then
+    COMMONS_SECRET_KEYS=$(commons_scope_names "$code_scope" | tr '\n' ' ' | sed -e 's/ $//')
+    export COMMONS_SECRET_KEYS
+  fi
 }
 
 cmd_remote() {
   module="$1"
   shift
   prepare_ops "$module" remote
-  commons_run_in "$infra" sh "$script" "$@"
+  run_script "$infra" "$script" "$@"
 }
 
 cmd_secrets() {
@@ -127,7 +131,7 @@ cmd_secrets() {
   [ -z "$missing" ] || commons_die "sem valor: $missing"
   COMMONS_SECRET_KEYS="$keys"
   export COMMONS_SECRET_KEYS
-  commons_run_in "$infra" sh "$script" "$@"
+  run_script "$infra" "$script" "$@"
 }
 
 compose_check() {

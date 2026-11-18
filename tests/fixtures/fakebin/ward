@@ -33,8 +33,13 @@ case "$1" in
       json=1
       shift
     fi
+    if [ "${FAKE_WARD_AIMODE-}" = 1 ]; then
+      echo "ward: --json is unavailable in AI mode — secret values are never exposed" >&2
+      exit 1
+    fi
     if [ "${FAKE_WARD_NOKEY-}" = 1 ]; then
-      echo "ward: cannot decrypt vault: WARD_KEY missing" >&2
+      echo "missing key for vault restricted — 3 file(s) skipped" >&2
+      echo "ward: key not found: restricted.secrets.core.code.prod" >&2
       exit 1
     fi
     if [ "${FAKE_WARD_NOSCOPE-}" = 1 ]; then

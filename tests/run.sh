@@ -9,7 +9,7 @@ TMP=$(cd "$(mktemp -d)" && pwd -P)
 trap 'rm -rf "$TMP"' EXIT INT TERM
 ORIG_PATH="$PATH"
 
-unset ENV ENVIRONMENT CONFIRM GITHUB_ACTIONS TAG FAKE_WARD_EMPTY FAKE_WARD_NOKEY FAKE_WARD_NOSCOPE
+unset ENV ENVIRONMENT CONFIRM GITHUB_ACTIONS TAG FAKE_WARD_EMPTY FAKE_WARD_NOKEY FAKE_WARD_NOSCOPE FAKE_WARD_AIMODE
 
 N=0
 PASSED=0
@@ -882,7 +882,116 @@ t_remote_runs_hook() {
   hook_has "ARGS=one two"
   hook_has "A=sekret1"
   hook_has "I=sekret3"
+  hook_has "COMMONS_SECRET_KEYS=A B"
   log_has "ward exec demo:secrets.core.code.remote demo:secrets.core.infra.remote"
+}
+
+install_recint() {
+  cat >"$C/fakebin/recint" <<'EOF'
+#!/bin/sh
+printf 'INTERP=recint\n' >"$HOOK_OUT"
+EOF
+  chmod +x "$C/fakebin/recint"
+}
+
+t_remote_executable_hook_uses_shebang() {
+  # arrange
+  install_recint
+  printf '#!/usr/bin/env recint\n' >"$P/modules/core/infra/ops/remote.sh"
+  chmod +x "$P/modules/core/infra/ops/remote.sh"
+  # act
+  cm "$BIN" remote core
+  # assert
+  rc_ok
+  hook_has "INTERP=recint"
+}
+
+t_secrets_executable_hook_uses_shebang() {
+  # arrange
+  install_recint
+  printf '#!/usr/bin/env recint\n' >"$P/modules/core/infra/ops/secrets.sh"
+  chmod +x "$P/modules/core/infra/ops/secrets.sh"
+  # act
+  cm "$BIN" secrets core
+  # assert
+  rc_ok
+  hook_has "INTERP=recint"
+}
+
+t_remote_non_executable_hook_runs_with_sh() {
+  # arrange
+  chmod -x "$P/modules/core/infra/ops/remote.sh"
+  # act
+  cm "$BIN" remote core
+  # assert
+  [ ! -x "$P/modules/core/infra/ops/remote.sh" ] || diag "hook ainda executável"
+  rc_ok
+  hook_has "HOOK=remote.sh"
+}
+
+t_secrets_non_executable_hook_runs_with_sh() {
+  # arrange
+  chmod -x "$P/modules/core/infra/ops/secrets.sh"
+  # act
+  cm "$BIN" secrets core
+  # assert
+  [ ! -x "$P/modules/core/infra/ops/secrets.sh" ] || diag "hook ainda executável"
+  rc_ok
+  hook_has "HOOK=secrets.sh"
+}
+
+t_aimode_hook_fails() {
+  # arrange
+  # act
+  cm FAKE_WARD_AIMODE=1 "$BIN" hook core test
+  # assert
+  rc_fail
+  err_has "commons: o ward recusou ler demo:secrets.core.code.check: ele roda em modo de agente (rode fora do agente)"
+  if grep -q "escopo .* vazio" "$C/err"; then diag "tratou modo de agente como escopo vazio"; fi
+  hook_not_ran
+  log_lacks "ward exec"
+}
+
+t_aimode_keys_fails() {
+  # arrange
+  # act
+  cm FAKE_WARD_AIMODE=1 "$BIN" keys core
+  # assert
+  rc_fail
+  err_has "ele roda em modo de agente (rode fora do agente)"
+  never_leaks
+}
+
+t_aimode_secrets_fails() {
+  # arrange
+  # act
+  cm FAKE_WARD_AIMODE=1 "$BIN" secrets core
+  # assert
+  rc_fail
+  err_has "ele roda em modo de agente (rode fora do agente)"
+  hook_not_ran
+  never_leaks
+}
+
+t_aimode_remote_fails() {
+  # arrange
+  # act
+  cm FAKE_WARD_AIMODE=1 "$BIN" remote core
+  # assert
+  rc_fail
+  err_has "ele roda em modo de agente (rode fora do agente)"
+  hook_not_ran
+}
+
+t_nokey_is_not_empty_scope() {
+  # arrange
+  # act
+  cm FAKE_WARD_NOKEY=1 "$BIN" hook core test
+  # assert
+  rc_fail
+  err_has "commons: sem acesso ao vault demo (falta a chave)"
+  if grep -q "vazio" "$C/err"; then diag "tratou falta de chave como escopo vazio"; fi
+  hook_not_ran
 }
 
 t_remote_missing_hook() {
@@ -1313,6 +1422,15 @@ run_case "remote: hook ausente falha citando o caminho" t_remote_missing_hook
 run_case "remote: colisão entre escopos code e infra falha sem rodar o hook" t_remote_collision
 run_case "remote respeita a guarda de ambiente restrito" t_remote_restricted_guard
 run_case "make core.remote ARGS=x" t_remote_via_make
+run_case "remote: hook executável com shebang próprio roda direto" t_remote_executable_hook_uses_shebang
+run_case "secrets: hook executável com shebang próprio roda direto" t_secrets_executable_hook_uses_shebang
+run_case "remote: hook não executável roda via sh" t_remote_non_executable_hook_runs_with_sh
+run_case "secrets: hook não executável roda via sh" t_secrets_non_executable_hook_runs_with_sh
+run_case "modo de agente: hook falha sem rodar" t_aimode_hook_fails
+run_case "modo de agente: keys falha" t_aimode_keys_fails
+run_case "modo de agente: secrets falha sem rodar o hook" t_aimode_secrets_fails
+run_case "modo de agente: remote falha sem rodar o hook" t_aimode_remote_fails
+run_case "sem chave do vault não vira escopo vazio" t_nokey_is_not_empty_scope
 run_case "secrets: caso verde exporta COMMONS_SECRET_KEYS e roda o hook" t_secrets_green
 run_case "secrets: ENV=check sobrescreve o default remote" t_secrets_env_override
 run_case "secrets: valor vazio e CHANGE_ME listam só os nomes" t_secrets_empty_value
@@ -1752,6 +1870,36 @@ t_init_outside_project_root_fails() {
   [ -f "$C/outer/Makefile" ] || diag "esperava Makefile na raiz do repo git"
 }
 
+t_init_under_symlink() {
+  # arrange
+  mk_init_project
+  init_modules
+  mv "$I" "$C/realproj"
+  ln -s "$C/realproj" "$C/linkproj"
+  I="$C/linkproj"
+  # act
+  init_run .commons/bin/init
+  # assert
+  rc_ok
+  [ -f "$C/realproj/Makefile" ] || diag "Makefile não criado na raiz real"
+  [ -f "$C/realproj/commons.ctx" ] || diag "commons.ctx não criado"
+  file_has "$C/realproj/.gitignore" ".ci-cache/"
+}
+
+t_init_gitignore_without_trailing_newline() {
+  # arrange
+  mk_init_project
+  init_modules
+  printf 'node_modules/' >"$I/.gitignore"
+  # act
+  init_run .commons/bin/init
+  # assert
+  rc_ok
+  file_has "$I/.gitignore" "node_modules/"
+  file_has "$I/.gitignore" ".ci-cache/"
+  [ "$(wc -l <"$I/.gitignore" | tr -d ' ')" = "2" ] || diag "esperava 2 linhas: $(tr '\n' '|' <"$I/.gitignore")"
+}
+
 t_init_generated_compose_is_valid() {
   # arrange
   if ! have_docker; then printf 'ok - skip: sem docker compose\n'; return; fi
@@ -1801,7 +1949,7 @@ mk_gh_project() {
   ( cd "$P" && git init -q -b main . && git remote add origin "$GR" )
   if [ "${1-}" = workflow ]; then
     mkdir -p "$P/.github/workflows"
-    printf 'name: check/pr\non: pull_request\n' >"$P/.github/workflows/pr.yml"
+    printf 'name: %s\non: pull_request\n' "${2-check/pr}" >"$P/.github/workflows/pr.yml"
     ( cd "$P" && git add .github/workflows/pr.yml )
   else
     printf 'x\n' >"$P/readme.txt"
@@ -1932,6 +2080,33 @@ t_gh_ruleset_existing_put_only() {
   # assert
   rc_ok
   log_has "gh api -X PUT repos/demo/repo/rulesets/42 --input -"
+  log_lacks "-X POST"
+}
+
+t_gh_ruleset_partial_name_deferred() {
+  # arrange
+  mk_gh_project workflow check/pr-x
+  gh_ctx "COMMONS_REQUIRED_CHECK=check/pr"
+  # act
+  cm "$BIN" github-setup
+  # assert
+  rc_ok
+  err_has "ruleset adiado: nenhum workflow em main declara check/pr"
+  log_lacks "-X POST"
+  log_lacks "-X PUT"
+  log_lacks "/rulesets"
+}
+
+t_gh_ruleset_duplicate_ids() {
+  # arrange
+  mk_gh_project workflow
+  gh_ctx "COMMONS_REQUIRED_CHECK=check/pr"
+  ids=$(printf '7\n8')
+  # act
+  cm "GH_RULESET_ID=$ids" "$BIN" github-setup
+  # assert
+  rc_ok
+  log_has "gh api -X PUT repos/demo/repo/rulesets/7 --input -"
   log_lacks "-X POST"
 }
 
@@ -2120,6 +2295,8 @@ run_case "init: só postgres inclui só database" t_init_only_postgres
 run_case "init: compose.yml existente intocado" t_init_existing_compose_untouched
 run_case "init: commons.ctx existente intocado" t_init_existing_ctx_untouched
 run_case "init: usa a raiz git quando commons está em subdiretório" t_init_outside_project_root_fails
+run_case "init: projeto sob symlink" t_init_under_symlink
+run_case "init: .gitignore sem newline final" t_init_gitignore_without_trailing_newline
 run_case "init: compose.yml gerado é válido" t_init_generated_compose_is_valid
 run_case "compose real: down mantém o volume database_data" t_compose_real_up_down_keeps_volume
 run_case "github.setup: gh secret set por par com a chave no stdin" t_gh_secrets_set
@@ -2130,6 +2307,8 @@ run_case "github.setup: ruleset adiado sem workflow na default" t_gh_ruleset_def
 run_case "github.setup: ruleset criado com workflow na default" t_gh_ruleset_created
 run_case "github.setup: segunda execução faz PUT no mesmo id" t_gh_ruleset_idempotent
 run_case "github.setup: ruleset existente só recebe PUT" t_gh_ruleset_existing_put_only
+run_case "github.setup: name parcial não conta como declarado" t_gh_ruleset_partial_name_deferred
+run_case "github.setup: id de ruleset duplicado usa o primeiro" t_gh_ruleset_duplicate_ids
 run_case "github.setup: sem COMMONS_REQUIRED_CHECK não toca rulesets" t_gh_no_required_check
 run_case "make github.setup" t_gh_make_target
 run_case "update: bin faz fetch --tags e checkout da tag" t_update_bin

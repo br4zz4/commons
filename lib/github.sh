@@ -34,11 +34,12 @@ commons_github_ruleset() {
   check="${COMMONS_REQUIRED_CHECK-}"
   [ -n "$check" ] || return 0
   default=$(gh repo view -R "$repo" --json defaultBranchRef -q .defaultBranchRef.name)
-  if ! git -C "$COMMONS_ROOT" grep -qF "name: $check" "origin/$default" -- .github/workflows 2> /dev/null; then
+  git -C "$COMMONS_ROOT" fetch -q origin "$default" 2> /dev/null || true
+  if ! git -C "$COMMONS_ROOT" grep -qE "^name: ${check}[[:space:]]*$|^[[:space:]]+name: ${check}[[:space:]]*$" "origin/$default" -- .github/workflows 2> /dev/null; then
     commons_warn "ruleset adiado: nenhum workflow em $default declara $check"
     return 0
   fi
-  id=$(gh api "repos/$repo/rulesets" --jq '.[] | select(.name=="commons-default-branch") | .id')
+  id=$(gh api "repos/$repo/rulesets" --jq '.[] | select(.name=="commons-default-branch") | .id' | head -n1)
   payload=$(printf '{"name":"commons-default-branch","target":"branch","enforcement":"active","conditions":{"ref_name":{"include":["~DEFAULT_BRANCH"],"exclude":[]}},"rules":[{"type":"required_status_checks","parameters":{"strict_required_status_checks_policy":true,"required_status_checks":[{"context":"%s","integration_id":15368}]}}]}' "$check")
   if [ -n "$id" ]; then
     printf '%s' "$payload" | gh api -X PUT "repos/$repo/rulesets/$id" --input - > /dev/null

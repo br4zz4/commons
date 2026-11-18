@@ -77,9 +77,10 @@ commons_check_scope() {
   err=$(mktemp)
   out=$(ward secrets --json "$scope" 2>"$err") && status=0 || status=$?
   if [ "$status" -ne 0 ]; then
-    if grep -qiE 'key not found' "$err"; then
-      out=""
-    elif grep -qiE 'key|chave|decrypt|WARD_KEY' "$err"; then
+    if grep -qi 'AI mode' "$err"; then
+      rm -f "$err"
+      commons_die "o ward recusou ler $scope: ele roda em modo de agente (rode fora do agente)"
+    elif grep -qiE 'missing key|no encryption key|cannot decrypt|decrypt|WARD_KEY' "$err"; then
       rm -f "$err"
       commons_die "sem acesso ao vault $vault (falta a chave)"
     fi
