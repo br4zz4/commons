@@ -34,7 +34,11 @@ case "$1" in
       shift
     fi
     if [ "${FAKE_WARD_NOKEY-}" = 1 ]; then
-      echo "vault key not found" >&2
+      echo "ward: cannot decrypt vault: WARD_KEY missing" >&2
+      exit 1
+    fi
+    if [ "${FAKE_WARD_NOSCOPE-}" = 1 ]; then
+      echo "ward: key not found: demo.secrets.core.code.dev" >&2
       exit 1
     fi
     if [ "$json" = 1 ]; then

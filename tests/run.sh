@@ -9,7 +9,7 @@ TMP=$(cd "$(mktemp -d)" && pwd -P)
 trap 'rm -rf "$TMP"' EXIT INT TERM
 ORIG_PATH="$PATH"
 
-unset ENV ENVIRONMENT CONFIRM GITHUB_ACTIONS TAG FAKE_WARD_EMPTY FAKE_WARD_NOKEY
+unset ENV ENVIRONMENT CONFIRM GITHUB_ACTIONS TAG FAKE_WARD_EMPTY FAKE_WARD_NOKEY FAKE_WARD_NOSCOPE
 
 N=0
 PASSED=0
@@ -295,6 +295,40 @@ t_empty_scope() {
   err_has "commons: escopo demo:secrets.core.code.check vazio"
   hook_ran
   log_lacks "ward exec"
+}
+
+t_noscope_hook_warns() {
+  # arrange
+  # act
+  cm FAKE_WARD_NOSCOPE=1 "$BIN" hook core lint
+  # assert
+  rc_ok
+  err_has "commons: escopo "
+  err_has " vazio"
+  if grep -q "sem acesso ao vault" "$C/err"; then diag "tratou escopo ausente como falta de chave"; fi
+  hook_ran
+  log_lacks "ward exec"
+}
+
+t_noscope_keys_fails() {
+  # arrange
+  # act
+  cm FAKE_WARD_NOSCOPE=1 "$BIN" keys core
+  # assert
+  rc_fail
+  err_has "commons: escopo demo:secrets.core.code.remote vazio"
+  if grep -q "sem acesso ao vault" "$C/err"; then diag "tratou escopo ausente como falta de chave"; fi
+}
+
+t_noscope_secrets_fails() {
+  # arrange
+  # act
+  cm FAKE_WARD_NOSCOPE=1 "$BIN" secrets core
+  # assert
+  rc_fail
+  err_has "commons: escopo demo:secrets.core.code.remote vazio"
+  if grep -q "sem acesso ao vault" "$C/err"; then diag "tratou escopo ausente como falta de chave"; fi
+  hook_not_ran
 }
 
 t_no_restricted_key() {
@@ -1223,6 +1257,9 @@ run_case "make core.test ENV=zzz: ambiente fora de COMMONS_ENVS" t_env_invalid
 run_case "COMMONS_ENV_* fora de COMMONS_ENVS" t_ctx_env_outside_envs
 run_case "sem ward: # COMMONS_VAULT=x não chama ward" t_no_ward
 run_case "escopo vazio: avisa e segue sem ward exec" t_empty_scope
+run_case "escopo inexistente no ward: hook avisa vazio e segue" t_noscope_hook_warns
+run_case "escopo inexistente no ward: keys falha como escopo vazio" t_noscope_keys_fails
+run_case "escopo inexistente no ward: secrets falha como escopo vazio" t_noscope_secrets_fails
 run_case "sem chave do vault restricted" t_no_restricted_key
 run_case "guarda: ENV=prod sem TTY e sem CONFIRM falha sem rodar" t_guard_without_confirm
 run_case "guarda: CONFIRM errado falha" t_guard_wrong_confirm
