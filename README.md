@@ -52,11 +52,12 @@ Every command takes `ENV=`, `ARGS=` and, for restricted environments, `CONFIRM=<
 ```yaml
 include:
   - .commons/compose/database.yml
-  - .commons/compose/cache.yml
   - .commons/compose/mail.yml
 ```
 
-Ports come from `COMMONS_DB_PORT`, `COMMONS_CACHE_PORT`, `COMMONS_MAIL_PORT` and `COMMONS_SMTP_PORT`.
+Ports come from `COMMONS_DB_PORT`, `COMMONS_MAIL_PORT` and `COMMONS_SMTP_PORT`.
+
+There is no Redis by default: Rails projects use Solid Cache and Solid Queue on Postgres. `cache.yml` is opt-in: declare `redis` in the module `services` of `.github/modules.json` (or include `.commons/compose/cache.yml` by hand, port `COMMONS_CACHE_PORT`) and record the exception in an ADR.
 
 ## Example
 
