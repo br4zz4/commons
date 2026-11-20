@@ -2466,6 +2466,10 @@ img_fake_docker() {
   cat >"$C/fakebin/docker" <<'SH'
 #!/bin/sh
 printf 'docker %s\n' "$*" >>"$FAKE_LOG"
+if [ "$1" = buildx ] && [ "$2" = inspect ] && [ "$3" = commons ]; then
+  [ "${FAKE_BUILDER_EXISTS-1}" = 1 ]
+  exit $?
+fi
 prev=""
 for a in "$@"; do
   case "$a" in
@@ -3236,6 +3240,125 @@ run_case "image real: precompile.env visível no precompile" t_img_real_precompi
 run_case "image real: precompile.env preserva cache de deps" t_img_real_precompile_env_keeps_deps_cache
 run_case "compose: module.yml expande o serviço completo" t_mod_compose_full_service
 run_case "compose: module.yml exige WEB_PORT" t_mod_compose_requires_web_port
+
+CACHE_REF="R/web:buildcache"
+CACHE_TAG="R/web:T"
+
+cache_line() {
+  grep -n -- "$1" "$FAKE_LOG" | head -1 | cut -d: -f1
+}
+
+t_img_cache_registry_build() {
+  # arrange
+  img_fake_docker
+  img_module
+  # act
+  cm "$BIN" build-image core release --tag "$CACHE_TAG" --push --cache-ref "$CACHE_REF"
+  # assert
+  rc_ok
+  log_has "docker buildx build"
+  log_has "--builder commons"
+  log_has "--cache-from type=registry,ref=$CACHE_REF"
+  log_has "--cache-to type=registry,ref=$CACHE_REF,mode=max,image-manifest=true,oci-mediatypes=true"
+  log_has "--push"
+  log_has "-t $CACHE_TAG"
+  log_has "--target release"
+}
+
+t_img_cache_builder_created_on_demand() {
+  # arrange
+  img_fake_docker
+  img_module
+  # act
+  cm FAKE_BUILDER_EXISTS=0 "$BIN" build-image core release --tag "$CACHE_TAG" --push --cache-ref "$CACHE_REF"
+  # assert
+  rc_ok
+  log_has "docker buildx inspect commons"
+  log_has "docker buildx create --name commons --driver docker-container"
+  create=$(cache_line "docker buildx create")
+  build=$(cache_line "docker buildx build")
+  [ -n "$create" ] || diag "create não chamado"
+  [ -n "$build" ] || diag "build não chamado"
+  [ "${create:-99}" -lt "${build:-0}" ] || diag "create ($create) não veio antes do build ($build)"
+}
+
+t_img_cache_existing_builder_reused() {
+  # arrange
+  img_fake_docker
+  img_module
+  # act
+  cm FAKE_BUILDER_EXISTS=1 "$BIN" build-image core release --tag "$CACHE_TAG" --push --cache-ref "$CACHE_REF"
+  # assert
+  rc_ok
+  log_has "docker buildx inspect commons"
+  log_lacks "docker buildx create"
+  log_has "docker buildx build"
+}
+
+t_img_cache_without_push_fails() {
+  # arrange
+  img_fake_docker
+  img_module
+  # act
+  cm "$BIN" build-image core release --tag "$CACHE_TAG" --cache-ref "$CACHE_REF"
+  # assert
+  rc_fail
+  err_has "--cache-ref exige --push"
+  log_lacks "docker build"
+}
+
+t_img_cache_ref_without_value_fails() {
+  # arrange
+  img_fake_docker
+  img_module
+  # act
+  cm "$BIN" build-image core release --tag "$CACHE_TAG" --push --cache-ref
+  # assert
+  rc_fail
+  err_has "--cache-ref exige valor"
+  log_lacks "docker build"
+}
+
+t_img_without_cache_ref_unchanged() {
+  # arrange
+  img_fake_docker
+  img_module
+  # act
+  cm "$BIN" build-image core dev
+  # assert
+  rc_ok
+  log_has "docker build "
+  log_has "--target dev"
+  log_has "-t demo-core:dev"
+  log_lacks "buildx"
+  log_lacks "--cache-from"
+  log_lacks "--cache-to"
+  log_lacks "--builder"
+}
+
+t_img_cache_first_build_missing_ref_only_command() {
+  # arrange
+  img_fake_docker
+  img_module
+  # act
+  cm "$BIN" build-image core release --tag "$CACHE_TAG" --push --cache-ref "$CACHE_REF"
+  # assert
+  rc_ok
+  log_has "--cache-from type=registry,ref=$CACHE_REF"
+  log_has "--cache-to type=registry,ref=$CACHE_REF,mode=max"
+  log_lacks "docker pull"
+  log_lacks "docker manifest"
+  log_lacks "imagetools"
+  log_lacks "docker push"
+}
+
+run_case "image cache: build com cache no registry" t_img_cache_registry_build
+run_case "image cache: builder criado sob demanda" t_img_cache_builder_created_on_demand
+run_case "image cache: builder existente é reaproveitado" t_img_cache_existing_builder_reused
+run_case "image cache: --cache-ref sem --push falha" t_img_cache_without_push_fails
+run_case "image cache: --cache-ref sem valor falha" t_img_cache_ref_without_value_fails
+run_case "image cache: sem --cache-ref nada muda" t_img_without_cache_ref_unchanged
+run_case "image cache: primeiro build com ref inexistente só pelo comando" t_img_cache_first_build_missing_ref_only_command
 
 printf '1..%s\n' "$N"
 printf '# passed %s, failed %s\n' "$PASSED" "$FAILED"

@@ -51,7 +51,9 @@ Every command takes `ENV=`, `ARGS=` and, for restricted environments, `CONFIRM=<
 
 ## Images
 
-`commons build-image <module> <dev|release> [--tag T]... [--platform P] [--push]` builds the module image from one generic Dockerfile (`docker/Dockerfile.tmpl`). Without `--tag` the image is `<project>-<module>:<target>`; with `--tag` only the given tags are applied.
+`commons build-image <module> <dev|release> [--tag T]... [--platform P] [--push] [--cache-ref R]` builds the module image from one generic Dockerfile (`docker/Dockerfile.tmpl`). Without `--tag` the image is `<project>-<module>:<target>`; with `--tag` only the given tags are applied.
+
+`--cache-ref R` (CI) reads and writes the layer cache in the registry (`type=registry,ref=R,mode=max`) and pushes the image straight from the builder, so it requires `--push`. It runs on a `docker-container` buildx builder named `commons`, created on demand. Runners are ephemeral, so this is what lets `base`, `tools` and `deps` come back as `CACHED` when the manifests did not change. Without the flag the command is the plain `docker build`.
 
 Stages: `base` (runtime) → `tools` (compilers) → `deps` (manifests + dependencies) → `dev` (dev tools, `CMD_DEV`) · `source` (code) → `release` (dependencies + code, `release.env`, user, `CMD_RELEASE`). Each stage copies only its own scripts, so editing a `dev` script never invalidates `deps`.
 
@@ -87,6 +89,7 @@ STACK_VERSION=3.4.7
 
 commons build-image core dev
 commons build-image core release --platform linux/amd64 --tag registry/app:1.0 --push
+commons build-image core release --platform linux/amd64 --tag registry/app:1.0 --push --cache-ref registry/app:buildcache
 ```
 
 ## Compose

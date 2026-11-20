@@ -93,14 +93,17 @@ commons_image_build() {
   tags=""
   platform=""
   push=""
+  cache_ref=""
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --tag) [ "$#" -ge 2 ] || commons_die "--tag exige valor"; tags="$tags $2"; shift 2 ;;
       --platform) [ "$#" -ge 2 ] || commons_die "--platform exige valor"; platform="$2"; shift 2 ;;
       --push) push=1; shift ;;
+      --cache-ref) [ "$#" -ge 2 ] || commons_die "--cache-ref exige valor"; cache_ref="$2"; shift 2 ;;
       *) commons_die "opção $1 desconhecida" ;;
     esac
   done
+  [ -z "$cache_ref" ] || [ -n "$push" ] || commons_die "--cache-ref exige --push"
   command -v docker >/dev/null 2>&1 || commons_die "docker não encontrado"
   commons_validate_module "$module"
   commons_resolve_env "$COMMONS_ENV_LOCAL"
@@ -134,7 +137,16 @@ commons_image_build() {
     commons_image_render "$COMMONS_HOME/docker/Dockerfile.tmpl" "$stack_dir" "$code_dir" >"$tmp/Dockerfile"
 
     [ -n "$tags" ] || tags=" $COMMONS_PROJECT-$module:$target"
-    set -- docker build \
+    if [ -n "$cache_ref" ]; then
+      docker buildx inspect commons >/dev/null 2>&1 \
+        || docker buildx create --name commons --driver docker-container >/dev/null
+      set -- docker buildx build --builder commons \
+        --cache-from "type=registry,ref=$cache_ref" \
+        --cache-to "type=registry,ref=$cache_ref,mode=max,image-manifest=true,oci-mediatypes=true"
+    else
+      set -- docker build
+    fi
+    set -- "$@" \
       --build-context "scripts=$tmp/scripts" \
       --build-context "manifests=$tmp/manifests" \
       --build-context "precompile=$tmp/precompile" \
