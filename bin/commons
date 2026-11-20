@@ -232,7 +232,7 @@ cmd_help() {
   printf '  <m>.lint|audit|test|build|validate|plan  run the module hook\n'
   printf '  <m>.<name>                               run <code>/run/<name>\n'
   printf '  <m>.shell|db|keys|remote|secrets         shell, psql, key names, remote hook, secret push\n'
-  printf '  build-image <m> <dev|release>            build the module image [--tag T] [--platform P] [--push]\n'
+  printf '  build-image <m> <dev|release>            build the module image [--tag T] [--platform P] [--push] [--cache-ref R]\n'
   printf '  up|down|logs                             compose services\n'
   printf '  conform|github.setup|commons.update      project checks and maintenance\n'
   [ -f "$COMMONS_ROOT/.github/modules.json" ] || return 0
