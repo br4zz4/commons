@@ -137,6 +137,10 @@ commons_prepare() {
       scope=$(commons_scope "$module" "$current_side")
       if commons_check_scope "$scope"; then
         COMMONS_SCOPES="$COMMONS_SCOPES $scope"
+        if [ "$current_side" = code ] && [ -z "${WARD_CONTEXT-}" ]; then
+          WARD_CONTEXT="${scope##*:}"
+          export WARD_CONTEXT
+        fi
       else
         commons_warn "escopo $scope vazio"
       fi

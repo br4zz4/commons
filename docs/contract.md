@@ -45,6 +45,7 @@ A missing required key fails with `commons: commons.ctx sem <KEY>`; an environme
 2. Vault: the restricted one for `COMMONS_RESTRICTED_ENVS`, otherwise `COMMONS_VAULT`.
 3. Scope: `COMMONS_SCOPE` filled with the four placeholders.
 4. Load: `ward exec <scope> -- ...`; a missing key fails, an empty scope warns and goes on.
+   The code-side scope also becomes `WARD_CONTEXT` (the scope without the vault prefix, e.g. `secrets.core.code.staging`) unless the caller already set it, so the app knows which scope it runs in.
 5. Guard: a restricted environment asks for `COMMONS_PROJECT` on a TTY, requires `CONFIRM=<project>` without one, and skips the question when `GITHUB_ACTIONS=true`.
 6. Toolchain: every script runs under `mise exec -C <dir>`; a directory without `mise.toml` fails.
 7. Parity with the pipeline: cwd is the side directory, with `MODULE`, `ENVIRONMENT`, `TAG` and `CI_CACHE_DIR=<dir>/.ci-cache`.

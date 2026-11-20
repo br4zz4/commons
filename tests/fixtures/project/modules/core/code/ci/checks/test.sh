@@ -7,4 +7,5 @@
   printf 'ENV=%s\n' "${ENV-unset}"
   printf 'PWD=%s\n' "$(pwd -P)"
   printf 'ARGS=%s\n' "$*"
+  printf 'WARD_CONTEXT=%s\n' "${WARD_CONTEXT-unset}"
 } >"$HOOK_OUT"

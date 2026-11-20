@@ -331,6 +331,43 @@ t_noscope_secrets_fails() {
   hook_not_ran
 }
 
+t_ward_context_exported() {
+  # arrange
+  # act
+  cm "$BIN" hook core test
+  # assert
+  rc_ok
+  hook_has "WARD_CONTEXT=secrets.core.code.check"
+}
+
+t_ward_context_preserved() {
+  # arrange
+  # act
+  cm WARD_CONTEXT=custom.ctx "$BIN" hook core test
+  # assert
+  rc_ok
+  hook_has "WARD_CONTEXT=custom.ctx"
+}
+
+t_ward_context_empty_scope() {
+  # arrange
+  # act
+  cm FAKE_WARD_EMPTY=1 "$BIN" hook core test
+  # assert
+  rc_ok
+  err_has "commons: escopo demo:secrets.core.code.check vazio"
+  hook_has "WARD_CONTEXT=unset"
+}
+
+t_ward_context_restricted() {
+  # arrange
+  # act
+  cm ENV=prod CONFIRM=demo "$BIN" hook core test
+  # assert
+  rc_ok
+  hook_has "WARD_CONTEXT=secrets.core.code.prod"
+}
+
 t_no_restricted_key() {
   # arrange
   # act
@@ -1411,6 +1448,10 @@ run_case "escopo vazio: avisa e segue sem ward exec" t_empty_scope
 run_case "escopo inexistente no ward: hook avisa vazio e segue" t_noscope_hook_warns
 run_case "escopo inexistente no ward: keys falha como escopo vazio" t_noscope_keys_fails
 run_case "escopo inexistente no ward: secrets falha como escopo vazio" t_noscope_secrets_fails
+run_case "WARD_CONTEXT: lado code exporta o escopo sem o vault" t_ward_context_exported
+run_case "WARD_CONTEXT: valor do chamador é preservado" t_ward_context_preserved
+run_case "WARD_CONTEXT: escopo code vazio não define" t_ward_context_empty_scope
+run_case "WARD_CONTEXT: ambiente restrito sem o prefixo do vault" t_ward_context_restricted
 run_case "sem chave do vault restricted" t_no_restricted_key
 run_case "guarda: ENV=prod sem TTY e sem CONFIRM falha sem rodar" t_guard_without_confirm
 run_case "guarda: CONFIRM errado falha" t_guard_wrong_confirm
