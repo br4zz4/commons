@@ -100,6 +100,8 @@ The database reads `DATABASE_PORT`, `DATABASE_USERNAME` and `DATABASE_PASSWORD` 
 
 There is no Redis by default: Rails projects use Solid Cache and Solid Queue on Postgres. `cache.yml` is opt-in: declare `redis` in the module `services` of `.github/modules.json` (or include `.commons/compose/cache.yml` by hand, port `COMMONS_CACHE_PORT`) and record the exception in an ADR.
 
+`commons run <module> <script>` runs the script in the module's compose service when `compose.yml` has a service named like the module (profiles included). It builds the dev image (`commons build-image <module> dev`, cached) and runs `docker compose run --rm --service-ports <module> ./run/<script>`, so the service's `depends_on` brings the dependencies up (the compose file owns them; commons never starts services on its own). Without such a service the script runs on the host as before.
+
 ## Example
 
 `examples/polyglot` has a ruby, a go and an elixir module with the same hooks; the CI of this

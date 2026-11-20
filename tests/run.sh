@@ -2690,6 +2690,131 @@ run_case "image real: camada de deps cacheada" t_img_real_deps_layer_cached
 run_case "image real: script que falha aborta" t_img_real_failing_script_aborts
 run_case "image real: release não-root" t_img_real_release_non_root
 
+cr_setup() {
+  cat >"$C/fakebin/docker" <<'SH'
+#!/bin/sh
+if [ "$1" = compose ] && [ "$2" = version ]; then
+  printf '2.27.0\n'
+  exit 0
+fi
+if [ "$1" = compose ] && [ "$2" = --profile ]; then
+  printf '%s\n' "${FAKE_COMPOSE_SERVICES-core}" | tr ',' '\n'
+  exit 0
+fi
+if [ "$1" = compose ] && [ "$2" = config ]; then
+  if [ -n "${FAKE_COMPOSE_PLAIN_SERVICES-}" ]; then printf '%s\n' "$FAKE_COMPOSE_PLAIN_SERVICES" | tr ',' '\n'; fi
+  exit 0
+fi
+printf 'docker %s\n' "$*" >>"$FAKE_LOG"
+if [ "$1" = build ] && [ -n "${FAKE_BUILD_FAIL:-}" ]; then exit 1; fi
+exit 0
+SH
+  chmod +x "$C/fakebin/docker"
+  printf 'services: {}\n' >"$P/compose.yml"
+  img_module
+  printf '#!/bin/sh\nprintf "ran\\n" >"$HOOK_OUT"\n' >"$IMG_CODE/run/console" 2>/dev/null || {
+    mkdir -p "$IMG_CODE/run"
+    printf '#!/bin/sh\nprintf "ran\\n" >"$HOOK_OUT"\n' >"$IMG_CODE/run/console"
+  }
+  chmod +x "$IMG_CODE/run/console"
+}
+
+cr_line() {
+  grep -n "$1" "$FAKE_LOG" | head -1 | cut -d: -f1
+}
+
+t_cr_service_runs_in_compose() {
+  # arrange
+  cr_setup
+  # act
+  cm "$BIN" run core console --flag value
+  # assert
+  rc_ok
+  log_has "docker compose run --rm --service-ports core ./run/console --flag value"
+  hook_not_ran
+}
+
+t_cr_profile_only_service_detected() {
+  # arrange
+  cr_setup
+  # act
+  cm FAKE_COMPOSE_SERVICES=core "$BIN" run core console
+  # assert
+  rc_ok
+  log_has "docker compose run --rm --service-ports core ./run/console"
+  hook_not_ran
+}
+
+t_cr_compose_without_module_service_runs_on_host() {
+  # arrange
+  cr_setup
+  # act
+  cm FAKE_COMPOSE_SERVICES=database "$BIN" run core console
+  # assert
+  rc_ok
+  hook_ran
+  log_lacks "docker compose run"
+}
+
+t_cr_without_compose_file_runs_on_host() {
+  # arrange
+  cr_setup
+  rm "$P/compose.yml"
+  # act
+  cm "$BIN" run core console
+  # assert
+  rc_ok
+  hook_ran
+  log_lacks "docker compose run"
+}
+
+t_cr_missing_script_fails() {
+  # arrange
+  cr_setup
+  # act
+  cm "$BIN" run core nope
+  # assert
+  rc_fail
+  err_has "$IMG_CODE/run/nope não existe"
+  log_lacks "docker compose run"
+  log_lacks "docker build"
+}
+
+t_cr_build_failure_aborts() {
+  # arrange
+  cr_setup
+  # act
+  cm FAKE_BUILD_FAIL=1 "$BIN" run core console
+  # assert
+  rc_fail
+  err_has "falhou ao construir a imagem de core"
+  log_lacks "docker compose run"
+  hook_not_ran
+}
+
+t_cr_build_before_run() {
+  # arrange
+  cr_setup
+  # act
+  cm "$BIN" run core console
+  # assert
+  rc_ok
+  build=$(cr_line "docker build")
+  run=$(cr_line "docker compose run")
+  [ -n "$build" ] || diag "build não chamado"
+  [ -n "$run" ] || diag "run não chamado"
+  [ "${build:-99}" -lt "${run:-0}" ] || diag "build ($build) não veio antes do run ($run)"
+  log_has "-t demo-core:dev"
+}
+
+run_case "run: serviço do módulo no compose roda via compose run" t_cr_service_runs_in_compose
+run_case "run: serviço só em profile é detectado" t_cr_profile_only_service_detected
+run_case "run: compose sem serviço do módulo roda no host" t_cr_compose_without_module_service_runs_on_host
+run_case "run: sem compose.yml roda no host" t_cr_without_compose_file_runs_on_host
+run_case "run: script inexistente com serviço falha" t_cr_missing_script_fails
+run_case "run: falha do build-image aborta" t_cr_build_failure_aborts
+run_case "run: build-image antes do compose run" t_cr_build_before_run
+
 printf '1..%s\n' "$N"
 printf '# passed %s, failed %s\n' "$PASSED" "$FAILED"
 [ "$FAILED" -eq 0 ]

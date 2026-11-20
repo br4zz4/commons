@@ -49,10 +49,31 @@ cmd_hook() {
   run_script "$dir" "$dir/ci/checks/$step.sh" "$@"
 }
 
+compose_has_service() {
+  [ -f "$COMMONS_ROOT/compose.yml" ] || return 1
+  (cd "$COMMONS_ROOT" && docker compose --profile '*' config --services 2>/dev/null) | grep -qx "$1"
+}
+
+run_in_compose() {
+  module="$1"
+  name="$2"
+  shift 2
+  dir=$(commons_dir "$module" code)
+  [ -f "$dir/run/$name" ] || commons_die "$dir/run/$name não existe"
+  compose_check
+  "$COMMONS_HOME/bin/commons" build-image "$module" dev >/dev/null || commons_die "falhou ao construir a imagem de $module"
+  cd "$COMMONS_ROOT"
+  exec docker compose run --rm --service-ports "$module" "./run/$name" "$@"
+}
+
 cmd_run() {
   module="$1"
   name="$2"
   shift 2
+  commons_validate_module "$module"
+  if compose_has_service "$module"; then
+    run_in_compose "$module" "$name" "$@"
+  fi
   commons_prepare "$module" code "$COMMONS_ENV_LOCAL"
   dir=$(commons_dir "$module" code)
   run_script "$dir" "$dir/run/$name" "$@"
