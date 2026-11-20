@@ -54,7 +54,7 @@ commons_conform_compose() {
 
 commons_conform() {
   COMMONS_CONFORM_FAILED=0
-  COMMONS_RESERVED_NAMES="lint audit test build validate plan shell db keys remote secrets"
+  COMMONS_RESERVED_NAMES="build validate plan shell db keys remote secrets"
   commons_conform_ctx || true
   if ! modules=$(python3 -I "$COMMONS_HOME/lib/modules.py" "$COMMONS_ROOT" list 2>"${TMPDIR:-/tmp}/commons-mod.$$"); then
     commons_conform_fail ".github/modules.json: $(sed -e 's/^commons: //' "${TMPDIR:-/tmp}/commons-mod.$$")"

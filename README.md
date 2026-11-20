@@ -37,7 +37,8 @@ Comment out `COMMONS_VAULT` for a project without ward. See `docs/contract.md` f
 
 | make | runs |
 |---|---|
-| `<m>.lint` `<m>.audit` `<m>.test` `<m>.build` | `<code>/ci/checks/<step>.sh`, the same hook the pipeline runs |
+| `<m>.lint` `<m>.audit` `<m>.test` | `<code>/run/<step>` when it exists (compose container, same script in CI), else `<code>/ci/checks/<step>.sh` |
+| `<m>.build` | `<code>/ci/checks/build.sh` |
 | `<m>.validate` `<m>.plan` | `<infra>/ci/checks/<step>.sh` |
 | `<m>.<name>` | `<code>/run/<name>` |
 | `<m>.shell` `<m>.db` `<m>.keys` | shell, `psql "$DATABASE_URL"`, key names of the scope |
@@ -101,6 +102,8 @@ The database reads `DATABASE_PORT`, `DATABASE_USERNAME` and `DATABASE_PASSWORD` 
 There is no Redis by default: Rails projects use Solid Cache and Solid Queue on Postgres. `cache.yml` is opt-in: declare `redis` in the module `services` of `.github/modules.json` (or include `.commons/compose/cache.yml` by hand, port `COMMONS_CACHE_PORT`) and record the exception in an ADR.
 
 `commons run <module> <script>` runs the script in the module's compose service when `compose.yml` has a service named like the module (profiles included). It builds the dev image (`commons build-image <module> dev`, cached) and runs `docker compose run --rm --service-ports <module> ./run/<script>`, so the service's `depends_on` brings the dependencies up (the compose file owns them; commons never starts services on its own). Without such a service the script runs on the host as before.
+
+`lint`, `audit` and `test` use `<code>/run/<step>` when it exists: in the compose service's container when there is one (as above), and the pipeline runs that same script on the host. Without `run/<step>` they fall back to `<code>/ci/checks/<step>.sh`. `build`, `validate` and `plan` are unchanged.
 
 ## Example
 

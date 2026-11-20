@@ -44,9 +44,21 @@ cmd_hook() {
   step="$2"
   shift 2
   side=$(side_of_step "$step") || commons_die "step $step fora do vocabulário"
-  commons_prepare "$module" "$side" "$(default_env_of_step "$step")"
+  commons_validate_module "$module"
   dir=$(commons_dir "$module" "$side")
-  run_script "$dir" "$dir/ci/checks/$step.sh" "$@"
+  script="$dir/ci/checks/$step.sh"
+  case "$step" in
+    lint | audit | test)
+      if [ -f "$dir/run/$step" ]; then
+        if compose_has_service "$module"; then
+          run_in_compose "$module" "$step" "$@"
+        fi
+        script="$dir/run/$step"
+      fi
+      ;;
+  esac
+  commons_prepare "$module" "$side" "$(default_env_of_step "$step")"
+  run_script "$dir" "$script" "$@"
 }
 
 compose_has_service() {

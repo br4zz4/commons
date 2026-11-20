@@ -777,14 +777,14 @@ t_make_restricted_confirm() {
 
 t_make_reserved_run_not_a_target() {
   # arrange
-  : >"$P/modules/core/code/run/lint"
+  printf '#!/bin/sh\nprintf "RUN_LINT\\n" >"$HOOK_OUT"\n' >"$P/modules/core/code/run/lint"
   chmod +x "$P/modules/core/code/run/lint"
-  printf '#!/bin/sh\nexit 99\n' >"$P/modules/core/code/run/lint"
   # act
   cm make --no-print-directory core.lint
   # assert
   rc_ok
-  hook_has "MODULE=core"
+  hook_has "RUN_LINT"
+  ! grep -qi "overriding\|ignoring" "$C/err" || diag "regra de make duplicada: $(tr '\n' '|' <"$C/err")"
 }
 
 install_psql() {
@@ -1312,7 +1312,7 @@ t_conform_modules_invalid_name() {
 
 t_conform_reserved_run_names() {
   # arrange
-  for name in lint audit test build validate plan shell db keys remote secrets; do
+  for name in build validate plan shell db keys remote secrets; do
     printf '#!/bin/sh\n' >"$P/modules/core/code/run/$name"
     # act
     cm "$BIN" conform
@@ -1326,12 +1326,12 @@ t_conform_reserved_run_names() {
 t_conform_reserved_run_in_override_dir() {
   # arrange
   mkdir -p "$P/modules/plain/app/run"
-  printf '#!/bin/sh\n' >"$P/modules/plain/app/run/lint"
+  printf '#!/bin/sh\n' >"$P/modules/plain/app/run/build"
   # act
   cm "$BIN" conform
   # assert
   rc_fail
-  err_has "modules/plain/app/run/lint"
+  err_has "modules/plain/app/run/build"
 }
 
 t_conform_ops_outside_vocabulary() {
@@ -1379,7 +1379,7 @@ t_conform_compose_absent_is_green() {
 t_conform_multiple_violations() {
   # arrange
   ctx_without COMMONS_REF
-  printf '#!/bin/sh\n' >"$P/modules/core/code/run/lint"
+  printf '#!/bin/sh\n' >"$P/modules/core/code/run/build"
   printf '#!/bin/sh\n' >"$P/modules/core/infra/ops/deploy.sh"
   printf 'include:\n  - .commons/compose/x.yml\n' >"$P/compose.yml"
   # act
@@ -1387,7 +1387,7 @@ t_conform_multiple_violations() {
   # assert
   rc_fail
   err_has "COMMONS_REF"
-  err_has "modules/core/code/run/lint"
+  err_has "modules/core/code/run/build"
   err_has "modules/core/infra/ops/deploy.sh"
   err_has ".commons/compose/x.yml"
 }
@@ -1454,7 +1454,7 @@ run_case "make plain.test usa o code.dir customizado" t_make_plain_override_dir
 run_case "make core.validate roda no dir infra" t_make_infra_step
 run_case "make core.console ENV=prod sem CONFIRM falha" t_make_restricted_guard
 run_case "make core.console ENV=prod CONFIRM=demo roda" t_make_restricted_confirm
-run_case "make: run/lint reservado não vira target e o hook vence" t_make_reserved_run_not_a_target
+run_case "make: run/lint não duplica o target core.lint" t_make_reserved_run_not_a_target
 run_case "db: sem DATABASE_URL falha" t_db_without_url
 run_case "db: chama psql com DATABASE_URL no dir code" t_db_calls_psql
 run_case "db: sem psql falha" t_db_without_psql
@@ -1498,7 +1498,19 @@ run_case "conform: ENV_* fora de ENVS" t_conform_ctx_env_outside_envs
 run_case "conform: modules.json ausente" t_conform_modules_missing
 run_case "conform: modules.json inválido" t_conform_modules_invalid
 run_case "conform: nome de módulo inválido" t_conform_modules_invalid_name
+t_conform_run_step_names_allowed() {
+  # arrange
+  for name in lint audit test; do
+    printf '#!/bin/sh\n' >"$P/modules/core/code/run/$name"
+  done
+  # act
+  cm "$BIN" conform
+  # assert
+  rc_ok
+}
+
 run_case "conform: run/ com nomes reservados" t_conform_reserved_run_names
+run_case "conform: run/lint, run/audit e run/test são permitidos" t_conform_run_step_names_allowed
 run_case "conform: run/ reservado em code.dir customizado" t_conform_reserved_run_in_override_dir
 run_case "conform: ops fora do vocabulário" t_conform_ops_outside_vocabulary
 run_case "conform: compose com fragment inexistente" t_conform_compose_missing_fragment
@@ -2814,6 +2826,110 @@ run_case "run: sem compose.yml roda no host" t_cr_without_compose_file_runs_on_h
 run_case "run: script inexistente com serviço falha" t_cr_missing_script_fails
 run_case "run: falha do build-image aborta" t_cr_build_failure_aborts
 run_case "run: build-image antes do compose run" t_cr_build_before_run
+
+
+hs_setup() {
+  cr_setup
+  for step in lint audit test; do
+    printf '#!/bin/sh\nprintf "RUN_%s\\n" >"$HOOK_OUT"\nprintf "ARGS=%%s\\n" "$*" >>"$HOOK_OUT"\n' "$step" >"$IMG_CODE/run/$step"
+    chmod +x "$IMG_CODE/run/$step"
+  done
+  mkdir -p "$IMG_CODE/ci/checks"
+  for step in lint audit test build; do
+    printf '#!/bin/sh\nprintf "CHECK_%s\\n" >"$HOOK_OUT"\n' "$step" >"$IMG_CODE/ci/checks/$step.sh"
+    chmod +x "$IMG_CODE/ci/checks/$step.sh"
+  done
+}
+
+t_hs_compose_service_runs_step() {
+  # arrange
+  hs_setup
+  for step in lint audit test; do
+    : >"$FAKE_LOG"
+    rm -f "$HOOK_OUT"
+    # act
+    cm "$BIN" hook core "$step" --opt x
+    # assert
+    rc_ok
+    log_has "docker compose run --rm --service-ports core ./run/$step --opt x"
+    log_has "docker build"
+    build=$(cr_line "docker build")
+    run=$(cr_line "docker compose run")
+    [ "${build:-99}" -lt "${run:-0}" ] || diag "$step: build não veio antes do run"
+    hook_not_ran
+  done
+}
+
+t_hs_host_without_service_runs_step() {
+  # arrange
+  hs_setup
+  # act
+  cm FAKE_COMPOSE_SERVICES=database "$BIN" hook core test
+  # assert
+  rc_ok
+  hook_has "RUN_test"
+  log_lacks "docker compose run"
+}
+
+t_hs_host_without_compose_file_runs_step() {
+  # arrange
+  hs_setup
+  rm "$P/compose.yml"
+  # act
+  cm "$BIN" hook core lint
+  # assert
+  rc_ok
+  hook_has "RUN_lint"
+  log_lacks "docker compose run"
+  log_has "ward exec demo:secrets.core.code.check"
+}
+
+t_hs_without_run_script_uses_checks_with_service() {
+  # arrange
+  hs_setup
+  for step in lint audit test; do
+    rm -f "$IMG_CODE/run/$step" "$HOOK_OUT"
+    : >"$FAKE_LOG"
+    # act
+    cm "$BIN" hook core "$step"
+    # assert
+    rc_ok
+    hook_has "CHECK_$step"
+    log_lacks "docker compose run"
+    log_lacks "docker build"
+  done
+}
+
+t_hs_without_run_script_uses_checks_without_compose() {
+  # arrange
+  hs_setup
+  rm "$P/compose.yml" "$IMG_CODE/run/lint"
+  # act
+  cm "$BIN" hook core lint
+  # assert
+  rc_ok
+  hook_has "CHECK_lint"
+}
+
+t_hs_build_ignores_run_build() {
+  # arrange
+  hs_setup
+  printf '#!/bin/sh\nprintf "RUN_build\\n" >"$HOOK_OUT"\n' >"$IMG_CODE/run/build"
+  chmod +x "$IMG_CODE/run/build"
+  # act
+  cm "$BIN" hook core build
+  # assert
+  rc_ok
+  hook_has "CHECK_build"
+  log_lacks "docker compose run"
+}
+
+run_case "hook: lint, audit e test rodam run/<passo> no compose" t_hs_compose_service_runs_step
+run_case "hook: sem serviço no compose roda run/test no host" t_hs_host_without_service_runs_step
+run_case "hook: sem compose.yml roda run/lint no host" t_hs_host_without_compose_file_runs_step
+run_case "hook: sem run/<passo> usa ci/checks mesmo com serviço" t_hs_without_run_script_uses_checks_with_service
+run_case "hook: sem run/<passo> e sem compose usa ci/checks" t_hs_without_run_script_uses_checks_without_compose
+run_case "hook: build ignora run/build" t_hs_build_ignores_run_build
 
 printf '1..%s\n' "$N"
 printf '# passed %s, failed %s\n' "$PASSED" "$FAILED"
