@@ -63,7 +63,7 @@ cmd_shell() {
   dir=$(commons_dir "$module" code)
   CI_CACHE_DIR="$dir/.ci-cache"
   export CI_CACHE_DIR
-  commons_run_in "$dir" "${SHELL:-sh}"
+  commons_run_in "$dir" sh -c 'sh "$0/lib/dbcheck.sh" warn; exec "$1"' "$COMMONS_HOME" "${SHELL:-sh}"
 }
 
 cmd_keys() {
@@ -83,7 +83,7 @@ cmd_db() {
   dir=$(commons_dir "$module" code)
   CI_CACHE_DIR="$dir/.ci-cache"
   export CI_CACHE_DIR
-  commons_run_in "$dir" sh -c '[ -n "${DATABASE_URL-}" ] || { echo "commons: sem DATABASE_URL" >&2; exit 1; }; command -v psql >/dev/null 2>&1 || { echo "commons: psql não encontrado" >&2; exit 1; }; exec psql "$DATABASE_URL"'
+  commons_run_in "$dir" sh -c 'sh "$0/lib/dbcheck.sh" die || exit 1; [ -n "${DATABASE_URL-}" ] || { echo "commons: sem DATABASE_URL" >&2; exit 1; }; command -v psql >/dev/null 2>&1 || { echo "commons: psql não encontrado" >&2; exit 1; }; exec psql "$DATABASE_URL"' "$COMMONS_HOME"
 }
 
 prepare_ops() {

@@ -868,6 +868,48 @@ t_db_via_make() {
   hook_has "PSQL_ARGS=postgres://u@h/db"
 }
 
+t_db_unresolvable_host_fails() {
+  # arrange
+  install_psql
+  # act
+  cm DB_HOST=nohost.invalid "$BIN" db core
+  # assert
+  rc_fail
+  err_has "o host nohost.invalid não resolve"
+  err_has "localhost"
+  hook_not_ran
+}
+
+t_shell_unresolvable_host_warns() {
+  # arrange
+  # act
+  cm DB_HOST=nohost.invalid SHELL="$C/fakebin/recshell" "$BIN" shell core
+  # assert
+  rc_ok
+  err_has "commons: aviso: o host nohost.invalid não resolve"
+  hook_ran
+}
+
+t_shell_resolvable_host_silent() {
+  # arrange
+  # act
+  cm DB_HOST=localhost SHELL="$C/fakebin/recshell" "$BIN" shell core
+  # assert
+  rc_ok
+  if grep -q "aviso" "$C/err"; then diag "avisou com host válido"; fi
+  hook_ran
+}
+
+t_db_host_skipped_with_database_url() {
+  # arrange
+  install_psql
+  # act
+  cm DB_HOST=nohost.invalid DATABASE_URL=postgres://u@h/db "$BIN" db core
+  # assert
+  rc_ok
+  hook_has "PSQL_ARGS=postgres://u@h/db"
+}
+
 t_remote_runs_hook() {
   # arrange
   infra="$P/modules/core/infra"
@@ -1417,6 +1459,10 @@ run_case "db: sem DATABASE_URL falha" t_db_without_url
 run_case "db: chama psql com DATABASE_URL no dir code" t_db_calls_psql
 run_case "db: sem psql falha" t_db_without_psql
 run_case "make core.db" t_db_via_make
+run_case "db: host irresolúvel falha" t_db_unresolvable_host_fails
+run_case "shell: host irresolúvel avisa e abre" t_shell_unresolvable_host_warns
+run_case "shell: host ok sem aviso" t_shell_resolvable_host_silent
+run_case "db: DATABASE_URL pula diagnóstico" t_db_host_skipped_with_database_url
 run_case "remote: roda ops/remote.sh no dir infra com env dos dois escopos e ARGS" t_remote_runs_hook
 run_case "remote: hook ausente falha citando o caminho" t_remote_missing_hook
 run_case "remote: colisão entre escopos code e infra falha sem rodar o hook" t_remote_collision
