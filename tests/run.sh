@@ -2868,6 +2868,58 @@ t_cr_build_before_run() {
   log_has "-t demo-core:dev"
 }
 
+cr_env_hook() {
+  printf '#!/bin/sh\nprintf "ENVIRONMENT=%%s\\n" "$ENVIRONMENT" >"$HOOK_OUT"\n' >"$IMG_CODE/run/console"
+  chmod +x "$IMG_CODE/run/console"
+}
+
+t_cr_service_without_env_goes_to_compose() {
+  # arrange
+  cr_setup
+  cr_env_hook
+  # act
+  cm "$BIN" run core console
+  # assert
+  rc_ok
+  log_has "docker compose run --rm core ./run/console"
+  hook_not_ran
+}
+
+t_cr_service_with_non_local_env_runs_on_host() {
+  # arrange
+  cr_setup
+  cr_env_hook
+  # act
+  cm ENV=remote "$BIN" run core console
+  # assert
+  rc_ok
+  log_lacks "docker compose run"
+  hook_has "ENVIRONMENT=remote"
+}
+
+t_cr_without_service_any_env_runs_on_host() {
+  # arrange
+  cr_setup
+  cr_env_hook
+  # act
+  cm FAKE_COMPOSE_SERVICES=database ENV=remote "$BIN" run core console
+  # assert
+  rc_ok
+  log_lacks "docker compose run"
+  hook_has "ENVIRONMENT=remote"
+  # arrange
+  rm -f "$HOOK_OUT"
+  # act
+  cm FAKE_COMPOSE_SERVICES=database ENV=dev "$BIN" run core console
+  # assert
+  rc_ok
+  log_lacks "docker compose run"
+  hook_has "ENVIRONMENT=dev"
+}
+
+run_case "run: serviço no compose sem ENV vai para o compose" t_cr_service_without_env_goes_to_compose
+run_case "run: serviço no compose com ENV não local roda no host" t_cr_service_with_non_local_env_runs_on_host
+run_case "run: sem serviço no compose roda no host com qualquer ENV" t_cr_without_service_any_env_runs_on_host
 run_case "run: serviço do módulo no compose roda via compose run" t_cr_service_runs_in_compose
 run_case "run: serviço só em profile é detectado" t_cr_profile_only_service_detected
 run_case "run: compose sem serviço do módulo roda no host" t_cr_compose_without_module_service_runs_on_host
