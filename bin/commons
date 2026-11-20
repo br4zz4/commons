@@ -9,6 +9,7 @@ export COMMONS_HOME COMMONS_ROOT
 
 . "$COMMONS_HOME/lib/print.sh"
 . "$COMMONS_HOME/lib/ctx.sh"
+. "$COMMONS_HOME/lib/image.sh"
 
 side_of_step() {
   case "$1" in
@@ -175,11 +176,19 @@ cmd_update() {
   git -C "$COMMONS_HOME" checkout "$COMMONS_REF"
 }
 
+cmd_build_image() {
+  module="$1"
+  target="$2"
+  shift 2
+  commons_image_build "$module" "$target" "$@"
+}
+
 cmd_help() {
   printf 'commands (make):\n'
   printf '  <m>.lint|audit|test|build|validate|plan  run the module hook\n'
   printf '  <m>.<name>                               run <code>/run/<name>\n'
   printf '  <m>.shell|db|keys|remote|secrets         shell, psql, key names, remote hook, secret push\n'
+  printf '  build-image <m> <dev|release>            build the module image [--tag T] [--platform P] [--push]\n'
   printf '  up|down|logs                             compose services\n'
   printf '  conform|github.setup|commons.update      project checks and maintenance\n'
   [ -f "$COMMONS_ROOT/.github/modules.json" ] || return 0
@@ -222,6 +231,7 @@ case "$command" in
   db) [ "$#" -ge 1 ] || commons_die "uso: commons db <módulo>"; cmd_db "$@" ;;
   remote) [ "$#" -ge 1 ] || commons_die "uso: commons remote <módulo>"; cmd_remote "$@" ;;
   secrets) [ "$#" -ge 1 ] || commons_die "uso: commons secrets <módulo>"; cmd_secrets "$@" ;;
+  build-image) [ "$#" -ge 2 ] || commons_die "uso: commons build-image <módulo> <dev|release>"; cmd_build_image "$@" ;;
   up) cmd_up "$@" ;;
   down) cmd_down "$@" ;;
   logs) cmd_logs "$@" ;;

@@ -2406,6 +2406,290 @@ run_case "help: --help" t_help_flags
 run_case "make sem alvo executa help" t_make_default_goal_help
 run_case "make help" t_make_help_target
 
+img_fake_docker() {
+  IMG_CTX="$C/ctx"
+  mkdir -p "$IMG_CTX"
+  export IMG_CTX
+  cat >"$C/fakebin/docker" <<'SH'
+#!/bin/sh
+printf 'docker %s\n' "$*" >>"$FAKE_LOG"
+prev=""
+for a in "$@"; do
+  case "$a" in
+    scripts=*) cp -R "${a#scripts=}" "$IMG_CTX/scripts" ;;
+    manifests=*) cp -R "${a#manifests=}" "$IMG_CTX/manifests" ;;
+  esac
+  [ "$prev" = -f ] && cp "$a" "$IMG_CTX/Dockerfile"
+  prev="$a"
+done
+exit 0
+SH
+  chmod +x "$C/fakebin/docker"
+}
+
+img_module() {
+  IMG_CODE="$P/modules/core/code"
+  mkdir -p "$IMG_CODE/.module"
+  printf 'STACK=%s\nSTACK_VERSION=3.4\n' "${1:-ruby}" >"$IMG_CODE/.module/build.env"
+  printf 'source "https://rubygems.org"\n' >"$IMG_CODE/Gemfile"
+  : >"$IMG_CODE/Gemfile.lock"
+}
+
+img_ctx_scripts() {
+  ls "$IMG_CTX/scripts" | tr '\n' ' '
+}
+
+t_img_scripts_ordered_by_name() {
+  # arrange
+  img_fake_docker
+  img_module
+  mkdir -p "$IMG_CODE/.module/scripts"
+  printf '#!/bin/sh\n' >"$IMG_CODE/.module/scripts/deps.50.extra.sh"
+  # act
+  cm "$BIN" build-image core dev
+  # assert
+  rc_ok
+  order=$(cd "$IMG_CTX/scripts" && ls deps.*.sh | tr '\n' ' ')
+  [ "$order" = "deps.00.noop.sh deps.10.bundle.sh deps.50.extra.sh " ] || diag "ordem inesperada: $order"
+}
+
+t_img_module_overrides_same_name() {
+  # arrange
+  img_fake_docker
+  img_module
+  mkdir -p "$IMG_CODE/.module/scripts"
+  printf '#!/bin/sh\n# module-wins\n' >"$IMG_CODE/.module/scripts/deps.10.bundle.sh"
+  # act
+  cm "$BIN" build-image core dev
+  # assert
+  rc_ok
+  grep -q 'module-wins' "$IMG_CTX/scripts/deps.10.bundle.sh" || diag "script do módulo não venceu"
+  [ "$(ls "$IMG_CTX/scripts"/deps.10.* | wc -l | tr -d ' ')" = 1 ] || diag "deps.10 duplicado"
+}
+
+t_img_noop_for_all_stages() {
+  # arrange
+  img_fake_docker
+  img_module
+  # act
+  cm "$BIN" build-image core dev
+  # assert
+  rc_ok
+  for stage in base tools deps dev release; do
+    [ -f "$IMG_CTX/scripts/$stage.00.noop.sh" ] || diag "sem $stage.00.noop.sh: $(img_ctx_scripts)"
+  done
+}
+
+t_img_script_name_outside_pattern() {
+  # arrange
+  img_fake_docker
+  img_module
+  mkdir -p "$IMG_CODE/.module/scripts"
+  printf '#!/bin/sh\n' >"$IMG_CODE/.module/scripts/setup.sh"
+  # act
+  cm "$BIN" build-image core dev
+  # assert
+  rc_fail
+  err_has "script setup.sh fora do padrão <etapa>.<NN>.<nome>.sh"
+  log_lacks "docker build"
+}
+
+t_img_invalid_target() {
+  # arrange
+  img_fake_docker
+  img_module
+  # act
+  cm "$BIN" build-image core staging
+  # assert
+  rc_fail
+  err_has "alvo staging inválido"
+  log_lacks "docker build"
+}
+
+t_img_missing_build_env() {
+  # arrange
+  img_fake_docker
+  # act
+  cm "$BIN" build-image core dev
+  # assert
+  rc_fail
+  err_has "core sem modules/core/code/.module/build.env"
+  log_lacks "docker build"
+}
+
+t_img_unknown_stack() {
+  # arrange
+  img_fake_docker
+  img_module cobol
+  # act
+  cm "$BIN" build-image core dev
+  # assert
+  rc_fail
+  err_has "STACK cobol desconhecida"
+}
+
+t_img_manifests_only_existing() {
+  # arrange
+  img_fake_docker
+  img_module
+  rm "$IMG_CODE/Gemfile.lock"
+  # act
+  cm "$BIN" build-image core dev
+  # assert
+  rc_ok
+  [ -f "$IMG_CTX/manifests/Gemfile" ] || diag "Gemfile não copiado"
+  [ ! -e "$IMG_CTX/manifests/Gemfile.lock" ] || diag "Gemfile.lock inexistente apareceu no contexto"
+}
+
+t_img_no_manifests_fails() {
+  # arrange
+  img_fake_docker
+  img_module
+  rm "$IMG_CODE/Gemfile" "$IMG_CODE/Gemfile.lock"
+  # act
+  cm "$BIN" build-image core dev
+  # assert
+  rc_fail
+  err_has "nenhum manifesto de ruby encontrado"
+}
+
+t_img_default_tag() {
+  # arrange
+  img_fake_docker
+  img_module
+  # act
+  cm "$BIN" build-image core release
+  # assert
+  rc_ok
+  log_has "-t demo-core:release"
+  log_has "--target release"
+}
+
+t_img_custom_tag_replaces_default() {
+  # arrange
+  img_fake_docker
+  img_module
+  # act
+  cm "$BIN" build-image core dev --tag reg.io/app:1 --platform linux/amd64 --push
+  # assert
+  rc_ok
+  log_has "-t reg.io/app:1"
+  log_lacks "-t demo-core:dev"
+  log_has "--platform linux/amd64"
+  log_has "--push"
+}
+
+IMG_REAL_TAG=""
+
+img_real_setup() {
+  img_module
+  mkdir -p "$IMG_CODE/run"
+  printf '#!/bin/sh\nexec true\n' >"$IMG_CODE/run/server"
+  printf '#!/bin/sh\nexec true\n' >"$IMG_CODE/run/start"
+  chmod +x "$IMG_CODE/run/server" "$IMG_CODE/run/start"
+  printf 'source "https://rubygems.org"\n' >"$IMG_CODE/Gemfile"
+  printf 'GEM\n  remote: https://rubygems.org/\n  specs:\n\nPLATFORMS\n  ruby\n\nDEPENDENCIES\n\n' >"$IMG_CODE/Gemfile.lock"
+  printf 'puts 1\n' >"$IMG_CODE/app.rb"
+  IMG_REAL_TAG="commons-imgtest-$$-$N"
+}
+
+img_real_cleanup() {
+  PATH="$ORIG_PATH" docker rmi -f "$IMG_REAL_TAG:dev" "$IMG_REAL_TAG:release" >/dev/null 2>&1
+}
+
+img_real_build() {
+  cm BUILDKIT_PROGRESS=plain "$BIN" build-image core "$1" --tag "$IMG_REAL_TAG:$1"
+  if [ "$RC" -ne 0 ] && grep -q 'parent snapshot does not exist' "$C/err"; then
+    cm BUILDKIT_PROGRESS=plain "$BIN" build-image core "$1" --tag "$IMG_REAL_TAG:$1"
+  fi
+}
+
+t_img_real_build_dev_and_release() {
+  # arrange
+  if ! have_daemon; then printf 'ok - skip: sem docker daemon\n'; return; fi
+  img_real_setup
+  # act
+  img_real_build dev
+  rc_ok
+  dev_rc=$RC
+  img_real_build release
+  # assert
+  rc_ok
+  [ "$dev_rc" -eq 0 ] || diag "build dev falhou"
+  PATH="$ORIG_PATH" docker image inspect "$IMG_REAL_TAG:dev" >/dev/null 2>&1 || diag "imagem dev ausente"
+  PATH="$ORIG_PATH" docker image inspect "$IMG_REAL_TAG:release" >/dev/null 2>&1 || diag "imagem release ausente"
+  img_real_cleanup
+}
+
+step_cached() {
+  ids=$(grep -E "^#[0-9]+ \[$1 [0-9]+/[0-9]+\] $2" "$C/all" | sed -E 's/^#([0-9]+) .*/\1/' | sort -u)
+  [ -n "$ids" ] || return 1
+  for id in $ids; do
+    grep -qE "^#$id CACHED" "$C/all" || return 1
+  done
+}
+
+t_img_real_deps_layer_cached() {
+  # arrange
+  if ! have_daemon; then printf 'ok - skip: sem docker daemon\n'; return; fi
+  img_real_setup
+  img_real_build release
+  rc_ok
+  printf 'puts "%s"\n' "$$-$N-$(date +%s)" >"$IMG_CODE/app.rb"
+  # act
+  img_real_build release
+  # assert
+  rc_ok
+  cat "$C/out" "$C/err" >"$C/all"
+  step_cached "deps" "RUN" || diag "camada de deps não veio do cache"
+  ! step_cached "source" "COPY" || diag "camada do código veio do cache e devia ser refeita"
+  img_real_cleanup
+}
+
+t_img_real_failing_script_aborts() {
+  # arrange
+  if ! have_daemon; then printf 'ok - skip: sem docker daemon\n'; return; fi
+  img_real_setup
+  mkdir -p "$IMG_CODE/.module/scripts"
+  printf '#!/bin/sh\nexit 1\n' >"$IMG_CODE/.module/scripts/deps.50.boom.sh"
+  # act
+  cm BUILDKIT_PROGRESS=plain "$BIN" build-image core dev --tag "$IMG_REAL_TAG:dev"
+  # assert
+  rc_fail
+  cat "$C/out" "$C/err" >"$C/all"
+  grep -qF 'falhou: /hooks/deps/deps.50.boom.sh' "$C/all" || diag "sem o nome do script que falhou: $(tail -5 "$C/all" | tr '\n' '|')"
+  img_real_cleanup
+}
+
+t_img_real_release_non_root() {
+  # arrange
+  if ! have_daemon; then printf 'ok - skip: sem docker daemon\n'; return; fi
+  img_real_setup
+  img_real_build release
+  rc_ok
+  # act
+  uid=$(PATH="$ORIG_PATH" docker run --rm --entrypoint id "$IMG_REAL_TAG:release" -u 2>/dev/null)
+  # assert
+  [ -n "$uid" ] && [ "$uid" != 0 ] || diag "release roda como root (uid='$uid')"
+  img_real_cleanup
+}
+
+run_case "image: scripts mesclados em ordem de nome" t_img_scripts_ordered_by_name
+run_case "image: script do módulo vence nome igual" t_img_module_overrides_same_name
+run_case "image: noop nas 5 etapas" t_img_noop_for_all_stages
+run_case "image: script fora do padrão falha" t_img_script_name_outside_pattern
+run_case "image: alvo inválido" t_img_invalid_target
+run_case "image: build.env ausente" t_img_missing_build_env
+run_case "image: STACK desconhecida" t_img_unknown_stack
+run_case "image: manifests só os existentes" t_img_manifests_only_existing
+run_case "image: nenhum manifesto falha" t_img_no_manifests_fails
+run_case "image: tag padrão projeto-módulo:alvo" t_img_default_tag
+run_case "image: --tag substitui a padrão" t_img_custom_tag_replaces_default
+run_case "image real: build dev e release" t_img_real_build_dev_and_release
+run_case "image real: camada de deps cacheada" t_img_real_deps_layer_cached
+run_case "image real: script que falha aborta" t_img_real_failing_script_aborts
+run_case "image real: release não-root" t_img_real_release_non_root
+
 printf '1..%s\n' "$N"
 printf '# passed %s, failed %s\n' "$PASSED" "$FAILED"
 [ "$FAILED" -eq 0 ]

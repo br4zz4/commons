@@ -1,0 +1,39 @@
+ARG BASE_IMAGE=scratch
+
+FROM ${BASE_IMAGE} AS base
+ARG PROJECT
+ARG STACK_VERSION
+WORKDIR /source
+COPY --from=scripts base.*.sh /hooks/base/
+RUN for f in /hooks/base/*.sh; do echo "[commons] $f"; sh -e "$f" || { echo "[commons] falhou: $f" >&2; exit 1; }; done
+@@BASE_ENV@@
+
+FROM base AS tools
+COPY --from=scripts tools.*.sh /hooks/tools/
+RUN for f in /hooks/tools/*.sh; do echo "[commons] $f"; sh -e "$f" || { echo "[commons] falhou: $f" >&2; exit 1; }; done
+
+FROM tools AS deps
+ARG DEPS_ENV=dev
+COPY --from=manifests . ./
+COPY --from=scripts deps.*.sh /hooks/deps/
+RUN for f in /hooks/deps/*.sh; do echo "[commons] $f"; sh -e "$f" || { echo "[commons] falhou: $f" >&2; exit 1; }; done
+
+FROM deps AS dev
+COPY --from=scripts dev.*.sh /hooks/dev/
+RUN for f in /hooks/dev/*.sh; do echo "[commons] $f"; sh -e "$f" || { echo "[commons] falhou: $f" >&2; exit 1; }; done
+CMD @@CMD_DEV@@
+
+FROM deps AS source
+COPY . .
+
+FROM base AS release
+ARG PROJECT
+ARG RELEASE_USER
+@@DEPS_COPY@@
+COPY --from=source /source /source
+@@RELEASE_ENV@@
+COPY --from=scripts release.*.sh /hooks/release/
+RUN for f in /hooks/release/*.sh; do echo "[commons] $f"; sh -e "$f" || { echo "[commons] falhou: $f" >&2; exit 1; }; done
+USER ${RELEASE_USER}:${RELEASE_USER}
+EXPOSE ${EXPOSE}
+CMD @@CMD_RELEASE@@

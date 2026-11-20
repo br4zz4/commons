@@ -42,10 +42,51 @@ Comment out `COMMONS_VAULT` for a project without ward. See `docs/contract.md` f
 | `<m>.<name>` | `<code>/run/<name>` |
 | `<m>.shell` `<m>.db` `<m>.keys` | shell, `psql "$DATABASE_URL"`, key names of the scope |
 | `<m>.remote` `<m>.secrets` | `<infra>/ops/remote.sh`, secret push through `<infra>/ops/secrets.sh` |
+| `build-image <m> <dev\|release>` | module image (see Images; run `commons build-image` directly) |
 | `up` `down` `logs` | compose services |
 | `conform` `github.setup` `commons.update` `help` | project checks and maintenance |
 
 Every command takes `ENV=`, `ARGS=` and, for restricted environments, `CONFIRM=<project>`.
+
+## Images
+
+`commons build-image <module> <dev|release> [--tag T]... [--platform P] [--push]` builds the module image from one generic Dockerfile (`docker/Dockerfile.tmpl`). Without `--tag` the image is `<project>-<module>:<target>`; with `--tag` only the given tags are applied.
+
+Stages: `base` (runtime) → `tools` (compilers) → `deps` (manifests + dependencies) → `dev` (dev tools, `CMD_DEV`) · `source` (code) → `release` (dependencies + code, `release.env`, user, `CMD_RELEASE`). Each stage copies only its own scripts, so editing a `dev` script never invalidates `deps`.
+
+Layout in commons:
+
+```
+docker/
+  Dockerfile.tmpl
+  stacks/<stack>/              ruby, go, elixir
+    defaults.env               BASE_IMAGE, CMD_DEV, CMD_RELEASE, EXPOSE, RELEASE_USER, DEPS_PATHS
+    manifests                  dependency files, one per line (Gemfile, Gemfile.lock)
+    base.env                   KEY=VALUE, becomes ENV after the base stage
+    release.env                KEY=VALUE, becomes ENV in the release stage
+    <stage>.<NN>.<name>.sh     stage scripts, steps of 10
+```
+
+Layout in the module (`<code>/.module/`):
+
+```
+build.env                      STACK, STACK_VERSION and overrides of defaults.env
+release.env                    optional, extra ENV for release
+scripts/<stage>.<NN>.<name>.sh module scripts, `50` by convention
+```
+
+Scripts are named `<stage>.<NN>.<name>.sh` with stage in `base|tools|deps|dev|release`. Stack and module scripts are merged by file name (the module wins on equal names) and run in name order with `set -e`; a failure aborts the build and prints the script name. A stage without scripts is fine.
+
+`DEPS_ENV` (`dev` or `release`, the build target) reaches the `deps` scripts; `STACK_VERSION`, `PROJECT` and `RELEASE_USER` reach every stage.
+
+```sh
+# <code>/.module/build.env
+STACK=ruby
+STACK_VERSION=3.4.7
+
+commons build-image core dev
+commons build-image core release --platform linux/amd64 --tag registry/app:1.0 --push
+```
 
 ## Compose
 
