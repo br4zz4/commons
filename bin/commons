@@ -61,6 +61,9 @@ cmd_shell() {
   module="$1"
   commons_prepare "$module" code "$COMMONS_ENV_LOCAL"
   dir=$(commons_dir "$module" code)
+  if [ -f "$dir/run/shell" ]; then
+    run_script "$dir" "$dir/run/shell"
+  fi
   CI_CACHE_DIR="$dir/.ci-cache"
   export CI_CACHE_DIR
   commons_run_in "$dir" sh -c 'sh "$0/lib/dbcheck.sh" warn; exec "$1"' "$COMMONS_HOME" "${SHELL:-sh}"
