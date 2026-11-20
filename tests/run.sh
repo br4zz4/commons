@@ -1544,10 +1544,29 @@ t_compose_config_valid() {
   if ! have_docker; then printf 'ok - skip: sem docker compose\n'; return; fi
   # act
   for f in database cache mail; do
-    PATH="$ORIG_PATH" docker compose -f "$(frag "$f")" config -q >"$C/out" 2>"$C/err"
+    PATH="$ORIG_PATH" DATABASE_PORT=5432 DATABASE_USERNAME=postgres DATABASE_PASSWORD=postgres CACHE_PORT=6379 MAIL_PORT=8025 SMTP_PORT=1025 \
+      docker compose -f "$(frag "$f")" config -q >"$C/out" 2>"$C/err"
     RC=$?
     # assert
     [ "$RC" -eq 0 ] || diag "$f.yml inválido: $(tr '\n' '|' <"$C/err")"
+  done
+}
+
+compose_without() {
+  PATH="$ORIG_PATH" DATABASE_PORT=5432 DATABASE_USERNAME=postgres DATABASE_PASSWORD=postgres CACHE_PORT=6379 MAIL_PORT=8025 SMTP_PORT=1025 \
+    env -u "$2" docker compose -f "$(frag "$1")" config -q >"$C/out" 2>"$C/err"
+  RC=$?
+}
+
+t_compose_requires_env() {
+  # arrange
+  if ! have_docker; then printf 'ok - skip: sem docker compose\n'; return; fi
+  for pair in database:DATABASE_PORT database:DATABASE_USERNAME database:DATABASE_PASSWORD cache:CACHE_PORT mail:MAIL_PORT mail:SMTP_PORT; do
+    # act
+    compose_without "${pair%%:*}" "${pair#*:}"
+    # assert
+    [ "$RC" -ne 0 ] || diag "${pair%%:*}.yml sem ${pair#*:} deveria falhar"
+    grep -qF "set ${pair#*:} in .env" "$C/err" || diag "${pair%%:*}.yml sem ${pair#*:}: mensagem ausente: $(tr '\n' '|' <"$C/err")"
   done
 }
 
@@ -1556,9 +1575,11 @@ t_compose_database_contract() {
   # act
   # assert
   frag_has database "image: postgres:16-alpine"
-  frag_has database "POSTGRES_USER: postgres"
-  frag_has database "POSTGRES_PASSWORD: postgres"
-  frag_has database "\"\${COMMONS_DB_PORT:-5432}:5432\""
+  frag_has database "POSTGRES_USER: \${DATABASE_USERNAME:?set DATABASE_USERNAME in .env}"
+  frag_has database "POSTGRES_PASSWORD: \${DATABASE_PASSWORD:?set DATABASE_PASSWORD in .env}"
+  frag_has database "\"\${DATABASE_PORT}:\${DATABASE_PORT}\""
+  frag_has database "command: [\"postgres\", \"-p\", \"\${DATABASE_PORT:?set DATABASE_PORT in .env}\"]"
+  frag_lacks database "COMMONS_DB_PORT"
   frag_has database "database_data:/var/lib/postgresql/data"
   frag_has database "healthcheck:"
   frag_has database "pg_isready"
@@ -1570,7 +1591,10 @@ t_compose_cache_contract() {
   # act
   # assert
   frag_has cache "image: redis:7-alpine"
-  frag_has cache "\"\${COMMONS_CACHE_PORT:-6379}:6379\""
+  frag_has cache "command: [\"redis-server\", \"--port\", \"\${CACHE_PORT:?set CACHE_PORT in .env}\"]"
+  frag_has cache "\"\${CACHE_PORT}:\${CACHE_PORT}\""
+  frag_has cache "REDISCLI_PORT: \${CACHE_PORT}"
+  frag_lacks cache "COMMONS_CACHE_PORT"
   frag_has cache "healthcheck:"
   frag_has cache "redis-cli"
   frag_has cache "  cache:"
@@ -1581,8 +1605,12 @@ t_compose_mail_contract() {
   # act
   # assert
   frag_has mail "image: axllent/mailpit:v1"
-  frag_has mail "\"\${COMMONS_MAIL_PORT:-8025}:8025\""
-  frag_has mail "\"\${COMMONS_SMTP_PORT:-1025}:1025\""
+  frag_has mail "MP_UI_BIND_ADDR: 0.0.0.0:\${MAIL_PORT:?set MAIL_PORT in .env}"
+  frag_has mail "MP_SMTP_BIND_ADDR: 0.0.0.0:\${SMTP_PORT:?set SMTP_PORT in .env}"
+  frag_has mail "\"\${MAIL_PORT}:\${MAIL_PORT}\""
+  frag_has mail "\"\${SMTP_PORT}:\${SMTP_PORT}\""
+  frag_lacks mail "COMMONS_MAIL_PORT"
+  frag_lacks mail "COMMONS_SMTP_PORT"
   frag_has mail "healthcheck:"
   frag_has mail "  mail:"
 }
@@ -1594,7 +1622,7 @@ t_compose_fragments_are_generic() {
   for f in database cache mail; do
     frag_lacks "$f" "DATABASE_URL"
     frag_lacks "$f" "demo"
-    frag_lacks "$f" "name:"
+    ! grep -q '^name:' "$(frag "$f")" || diag "$f.yml tem 'name:' de projeto e não devia"
     frag_lacks "$f" "production"
     frag_lacks "$f" "staging"
     frag_lacks "$f" "development"
@@ -1953,7 +1981,7 @@ t_init_generated_compose_is_valid() {
   init_modules
   init_run .commons/bin/init
   # act
-  ( cd "$I" && PATH="$ORIG_PATH" docker compose config -q ) >"$C/out" 2>"$C/err"
+  ( cd "$I" && PATH="$ORIG_PATH" DATABASE_PORT=5432 DATABASE_USERNAME=postgres DATABASE_PASSWORD=postgres CACHE_PORT=6379 MAIL_PORT=8025 SMTP_PORT=1025 docker compose config -q ) >"$C/out" 2>"$C/err"
   RC=$?
   # assert
   rc_ok
@@ -1974,10 +2002,15 @@ print(a.getsockname()[1], b.getsockname()[1])')
   proj="c3test$$"
   PATH="$ORIG_PATH"
   # act
-  init_run COMMONS_CACHE_PORT="$cport" COMMONS_DB_PORT="$dport" .commons/bin/commons up
+  dbuser="u$$"
+  dbpass="p$$"
+  init_run CACHE_PORT="$cport" DATABASE_PORT="$dport" DATABASE_USERNAME="$dbuser" DATABASE_PASSWORD="$dbpass" .commons/bin/commons up
   up_rc=$RC
+  ( cd "$I" && CACHE_PORT="$cport" DATABASE_PORT="$dport" DATABASE_USERNAME="$dbuser" DATABASE_PASSWORD="$dbpass" \
+    docker compose -p "$proj" -f compose.yml exec -T database sh -c 'printf "%s\n" "$POSTGRES_USER" "$POSTGRES_PASSWORD" "$PGPORT"; pg_isready -U "$POSTGRES_USER" -p "$PGPORT"' ) >"$C/db_env" 2>&1
+  ready_rc=$?
   docker volume ls -q --filter "name=${proj}_database_data" >"$C/vol_up" 2>/dev/null
-  init_run COMMONS_CACHE_PORT="$cport" COMMONS_DB_PORT="$dport" .commons/bin/commons down
+  init_run CACHE_PORT="$cport" DATABASE_PORT="$dport" DATABASE_USERNAME="$dbuser" DATABASE_PASSWORD="$dbpass" .commons/bin/commons down
   down_rc=$RC
   docker volume ls -q --filter "name=${proj}_database_data" >"$C/vol_down" 2>/dev/null
   docker volume rm "${proj}_database_data" >/dev/null 2>&1
@@ -1985,6 +2018,11 @@ print(a.getsockname()[1], b.getsockname()[1])')
   # assert
   [ "$up_rc" -eq 0 ] || diag "up falhou rc=$up_rc"
   [ "$down_rc" -eq 0 ] || diag "down falhou rc=$down_rc"
+  [ "$ready_rc" -eq 0 ] || diag "pg_isready falhou rc=$ready_rc: $(tr '\n' '|' <"$C/db_env")"
+  [ "$(sed -n 1p "$C/db_env")" = "$dbuser" ] || diag "POSTGRES_USER não veio do .env: $(tr '\n' '|' <"$C/db_env")"
+  [ "$(sed -n 2p "$C/db_env")" = "$dbpass" ] || diag "POSTGRES_PASSWORD não veio do .env"
+  [ "$(sed -n 3p "$C/db_env")" = "$dport" ] || diag "PGPORT não veio do .env: $(tr '\n' '|' <"$C/db_env")"
+  grep -q "accepting connections" "$C/db_env" || diag "pg_isready sem accepting connections"
   grep -qx "${proj}_database_data" "$C/vol_up" || diag "volume não existia após up"
   grep -qx "${proj}_database_data" "$C/vol_down" || diag "down removeu o volume database_data"
 }
@@ -2314,6 +2352,7 @@ t_make_help_target() {
 }
 
 run_case "compose: cada fragment passa em config -q" t_compose_config_valid
+run_case "compose: fragments exigem portas e credenciais no .env" t_compose_requires_env
 run_case "compose: database.yml conforme a tabela" t_compose_database_contract
 run_case "compose: cache.yml conforme a tabela" t_compose_cache_contract
 run_case "compose: mail.yml conforme a tabela" t_compose_mail_contract

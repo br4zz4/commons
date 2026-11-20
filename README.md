@@ -55,7 +55,7 @@ include:
   - .commons/compose/mail.yml
 ```
 
-Ports come from `COMMONS_DB_PORT`, `COMMONS_MAIL_PORT` and `COMMONS_SMTP_PORT`.
+The database reads `DATABASE_PORT`, `DATABASE_USERNAME` and `DATABASE_PASSWORD` from `.env` and fails when any is missing (the server listens on `DATABASE_PORT` too, so host and container share one port). `cache.yml` and `mail.yml` work the same way: `CACHE_PORT`, `MAIL_PORT` and `SMTP_PORT` come from `.env`, have no default and fail when missing.
 
 There is no Redis by default: Rails projects use Solid Cache and Solid Queue on Postgres. `cache.yml` is opt-in: declare `redis` in the module `services` of `.github/modules.json` (or include `.commons/compose/cache.yml` by hand, port `COMMONS_CACHE_PORT`) and record the exception in an ADR.
 
