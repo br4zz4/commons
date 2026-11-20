@@ -129,12 +129,15 @@ commons_image_build() {
     trap 'rm -rf "$tmp"' EXIT
     commons_image_merge_scripts "$stack_dir" "$code_dir" "$tmp/scripts"
     commons_image_merge_manifests "$stack_dir" "$code_dir" "$tmp/manifests"
+    mkdir -p "$tmp/precompile"
+    [ ! -f "$code_dir/.module/precompile.env" ] || cp "$code_dir/.module/precompile.env" "$tmp/precompile/precompile.env"
     commons_image_render "$COMMONS_HOME/docker/Dockerfile.tmpl" "$stack_dir" "$code_dir" >"$tmp/Dockerfile"
 
     [ -n "$tags" ] || tags=" $COMMONS_PROJECT-$module:$target"
     set -- docker build \
       --build-context "scripts=$tmp/scripts" \
       --build-context "manifests=$tmp/manifests" \
+      --build-context "precompile=$tmp/precompile" \
       --build-arg "BASE_IMAGE=$BASE_IMAGE" \
       --build-arg "STACK_VERSION=$STACK_VERSION" \
       --build-arg "DEPS_ENV=$target" \

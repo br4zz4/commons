@@ -75,7 +75,11 @@ run_in_compose() {
   compose_check
   "$COMMONS_HOME/bin/commons" build-image "$module" dev >/dev/null || commons_die "falhou ao construir a imagem de $module"
   cd "$COMMONS_ROOT"
-  exec docker compose run --rm --service-ports "$module" "./run/$name" "$@"
+  ports=""
+  case "$name" in
+    start | server) ports="--service-ports" ;;
+  esac
+  exec docker compose run --rm ${ports:+"$ports"} "$module" "./run/$name" "$@"
 }
 
 cmd_run() {
@@ -97,6 +101,13 @@ cmd_shell() {
   dir=$(commons_dir "$module" code)
   if [ -f "$dir/run/shell" ]; then
     run_script "$dir" "$dir/run/shell"
+  fi
+  if compose_has_service "$module"; then
+    compose_check
+    "$COMMONS_HOME/bin/commons" build-image "$module" dev >/dev/null || commons_die "falhou ao construir a imagem de $module"
+    cd "$COMMONS_ROOT"
+    docker compose run --rm "$module" "${COMMONS_SHELL:-zsh}" || true
+    exit 0
   fi
   CI_CACHE_DIR="$dir/.ci-cache"
   export CI_CACHE_DIR

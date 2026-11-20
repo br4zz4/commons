@@ -2429,6 +2429,7 @@ prev=""
 for a in "$@"; do
   case "$a" in
     scripts=*) cp -R "${a#scripts=}" "$IMG_CTX/scripts" ;;
+    precompile=*) cp -R "${a#precompile=}" "$IMG_CTX/precompile" ;;
     manifests=*) cp -R "${a#manifests=}" "$IMG_CTX/manifests" ;;
   esac
   [ "$prev" = -f ] && cp "$a" "$IMG_CTX/Dockerfile"
@@ -2719,6 +2720,7 @@ if [ "$1" = compose ] && [ "$2" = config ]; then
 fi
 printf 'docker %s\n' "$*" >>"$FAKE_LOG"
 if [ "$1" = build ] && [ -n "${FAKE_BUILD_FAIL:-}" ]; then exit 1; fi
+if [ "$1" = compose ] && [ "$2" = run ] && [ -n "${FAKE_RUN_FAIL:-}" ]; then exit 3; fi
 exit 0
 SH
   chmod +x "$C/fakebin/docker"
@@ -2742,7 +2744,8 @@ t_cr_service_runs_in_compose() {
   cm "$BIN" run core console --flag value
   # assert
   rc_ok
-  log_has "docker compose run --rm --service-ports core ./run/console --flag value"
+  log_has "docker compose run --rm core ./run/console --flag value"
+  log_lacks "--service-ports"
   hook_not_ran
 }
 
@@ -2753,7 +2756,8 @@ t_cr_profile_only_service_detected() {
   cm FAKE_COMPOSE_SERVICES=core "$BIN" run core console
   # assert
   rc_ok
-  log_has "docker compose run --rm --service-ports core ./run/console"
+  log_has "docker compose run --rm core ./run/console"
+  log_lacks "--service-ports"
   hook_not_ran
 }
 
@@ -2851,7 +2855,8 @@ t_hs_compose_service_runs_step() {
     cm "$BIN" hook core "$step" --opt x
     # assert
     rc_ok
-    log_has "docker compose run --rm --service-ports core ./run/$step --opt x"
+    log_has "docker compose run --rm core ./run/$step --opt x"
+    log_lacks "--service-ports"
     log_has "docker build"
     build=$(cr_line "docker build")
     run=$(cr_line "docker compose run")
@@ -2930,6 +2935,266 @@ run_case "hook: sem compose.yml roda run/lint no host" t_hs_host_without_compose
 run_case "hook: sem run/<passo> usa ci/checks mesmo com serviço" t_hs_without_run_script_uses_checks_with_service
 run_case "hook: sem run/<passo> e sem compose usa ci/checks" t_hs_without_run_script_uses_checks_without_compose
 run_case "hook: build ignora run/build" t_hs_build_ignores_run_build
+
+
+t_cr_service_ports_only_for_start_and_server() {
+  # arrange
+  cr_setup
+  for name in start server; do
+    printf '#!/bin/sh\n' >"$IMG_CODE/run/$name"
+    chmod +x "$IMG_CODE/run/$name"
+    : >"$FAKE_LOG"
+    # act
+    cm "$BIN" run core "$name" --port 1
+    # assert
+    rc_ok
+    log_has "docker compose run --rm --service-ports core ./run/$name --port 1"
+  done
+}
+
+t_cr_no_service_ports_for_other_scripts() {
+  # arrange
+  cr_setup
+  for name in console migrate seed; do
+    printf '#!/bin/sh\n' >"$IMG_CODE/run/$name"
+    chmod +x "$IMG_CODE/run/$name"
+    : >"$FAKE_LOG"
+    # act
+    cm "$BIN" run core "$name"
+    # assert
+    rc_ok
+    log_has "docker compose run --rm core ./run/$name"
+    log_lacks "--service-ports"
+  done
+}
+
+t_sh_run_shell_overrides() {
+  # arrange
+  cr_setup
+  printf '#!/bin/sh\nprintf "RUN_SHELL\\n" >"$HOOK_OUT"\n' >"$IMG_CODE/run/shell"
+  chmod +x "$IMG_CODE/run/shell"
+  # act
+  cm "$BIN" shell core
+  # assert
+  hook_has "RUN_SHELL"
+  log_lacks "docker compose run"
+  log_lacks "docker build"
+}
+
+t_sh_service_without_run_shell_uses_compose() {
+  # arrange
+  cr_setup
+  # act
+  cm "$BIN" shell core
+  # assert
+  rc_ok
+  log_has "docker compose run --rm core zsh"
+  log_lacks "--service-ports"
+  build=$(cr_line "docker build")
+  run=$(cr_line "docker compose run")
+  [ "${build:-99}" -lt "${run:-0}" ] || diag "build ($build) não veio antes do run ($run)"
+}
+
+t_sh_commons_shell_overrides_zsh() {
+  # arrange
+  cr_setup
+  # act
+  cm COMMONS_SHELL=bash "$BIN" shell core
+  # assert
+  rc_ok
+  log_has "docker compose run --rm core bash"
+}
+
+t_sh_exit_zero_when_container_fails() {
+  # arrange
+  cr_setup
+  # act
+  cm FAKE_RUN_FAIL=1 "$BIN" shell core
+  # assert
+  rc_ok
+  log_has "docker compose run --rm core zsh"
+}
+
+t_sh_build_failure_fails() {
+  # arrange
+  cr_setup
+  # act
+  cm FAKE_BUILD_FAIL=1 "$BIN" shell core
+  # assert
+  rc_fail
+  err_has "falhou ao construir a imagem de core"
+  log_lacks "docker compose run"
+}
+
+t_sh_without_service_uses_host() {
+  # arrange
+  cr_setup
+  # act
+  cm FAKE_COMPOSE_SERVICES=database SHELL="$C/fakebin/recshell" "$BIN" shell core
+  # assert
+  rc_ok
+  hook_ran
+  log_lacks "docker compose run"
+}
+
+t_img_precompile_context_with_file() {
+  # arrange
+  img_fake_docker
+  img_module
+  printf '# comment\n\nFOO=bar\nBAZ=qux\n' >"$IMG_CODE/.module/precompile.env"
+  # act
+  cm "$BIN" build-image core release
+  # assert
+  rc_ok
+  log_has "--build-context precompile="
+  [ -f "$IMG_CTX/precompile/precompile.env" ] || diag "precompile.env ausente no contexto"
+  cmp -s "$IMG_CTX/precompile/precompile.env" "$IMG_CODE/.module/precompile.env" || diag "conteúdo do precompile.env difere"
+}
+
+t_img_precompile_context_empty_without_file() {
+  # arrange
+  img_fake_docker
+  img_module
+  # act
+  cm "$BIN" build-image core release
+  # assert
+  rc_ok
+  log_has "--build-context precompile="
+  [ -d "$IMG_CTX/precompile" ] || diag "contexto precompile ausente"
+  [ -z "$(ls -A "$IMG_CTX/precompile")" ] || diag "contexto precompile devia ser vazio: $(ls -A "$IMG_CTX/precompile")"
+}
+
+t_img_precompile_copied_only_in_release() {
+  # arrange
+  img_fake_docker
+  img_module
+  # act
+  cm "$BIN" build-image core dev
+  # assert
+  rc_ok
+  awk '/^FROM .* AS release/{r=1} r&&/COPY --from=precompile \. \/hooks\/precompile\//{f=1} END{exit !f}' "$IMG_CTX/Dockerfile" || diag "release sem COPY do precompile"
+  awk '/^FROM .* AS release/{exit} /precompile/{f=1} END{exit f}' "$IMG_CTX/Dockerfile" || diag "precompile referenciado antes da etapa release"
+}
+
+img_real_precompile_setup() {
+  img_real_setup
+  mkdir -p "$IMG_CODE/bin" "$IMG_CODE/.module/scripts"
+  printf '#!/bin/sh\n' >"$IMG_CODE/bin/rails"
+  cat >"$IMG_CODE/.module/scripts/release.05.fakebundle.sh" <<'SH'
+#!/bin/sh
+cat >/usr/local/bin/bundle <<'INNER'
+#!/bin/sh
+printf '%s\n' "${PRECOMPILE_PROBE-unset}" >/precompile.out
+INNER
+chmod +x /usr/local/bin/bundle
+SH
+}
+
+t_img_real_precompile_env_visible() {
+  # arrange
+  if ! have_daemon; then printf 'ok - skip: sem docker daemon\n'; return; fi
+  img_real_precompile_setup
+  printf '# comment\n\nPRECOMPILE_PROBE=probe-value\n' >"$IMG_CODE/.module/precompile.env"
+  img_real_build release
+  rc_ok
+  # act
+  seen=$(PATH="$ORIG_PATH" docker run --rm --entrypoint cat "$IMG_REAL_TAG:release" /precompile.out 2>/dev/null)
+  # assert
+  [ "$seen" = "probe-value" ] || diag "variável não visível no precompile (veio '$seen')"
+  img_real_cleanup
+}
+
+t_img_real_precompile_env_keeps_deps_cache() {
+  # arrange
+  if ! have_daemon; then printf 'ok - skip: sem docker daemon\n'; return; fi
+  img_real_precompile_setup
+  printf 'PRECOMPILE_PROBE=one-%s\n' "$$-$N-$(date +%s)" >"$IMG_CODE/.module/precompile.env"
+  img_real_build release
+  rc_ok
+  printf 'PRECOMPILE_PROBE=two-%s\n' "$$-$N-$(date +%s)" >"$IMG_CODE/.module/precompile.env"
+  # act
+  img_real_build release
+  # assert
+  rc_ok
+  cat "$C/out" "$C/err" >"$C/all"
+  step_cached "deps" "RUN" || diag "camada de deps foi invalidada pelo precompile.env"
+  img_real_cleanup
+}
+
+t_mod_compose_project() {
+  MP="$C/modproj"
+  mkdir -p "$MP/modules/core/code" "$MP/.ward"
+  ln -s "$REPO" "$MP/.commons"
+  cat >"$MP/.env" <<'ENV'
+DATABASE_USERNAME=u
+DATABASE_PASSWORD=p
+DATABASE_PORT=5432
+SOME_ROOT_VAR=from-root-env
+ENV
+  cat >"$MP/compose.yml" <<'YML'
+include:
+  - .commons/compose/database.yml
+services:
+  core:
+    extends:
+      file: .commons/compose/module.yml
+      service: module
+    image: demo-core:dev
+    environment:
+      WARD_CONTEXT: secrets.core.code.development
+    volumes:
+      - ./modules/core/code:/source
+YML
+}
+
+t_mod_compose_full_service() {
+  # arrange
+  if ! have_docker; then printf 'ok - skip: sem docker compose\n'; return; fi
+  t_mod_compose_project
+  printf 'WEB_PORT=3456\n' >>"$MP/.env"
+  # act
+  ( cd "$MP" && PATH="$ORIG_PATH" docker compose --profile tools config ) >"$C/out" 2>"$C/err"
+  RC=$?
+  # assert
+  rc_ok
+  grep -qF "SOME_ROOT_VAR: from-root-env" "$C/out" || diag "env_file da raiz não aplicado: $(tr '\n' '|' <"$C/out")"
+  grep -qF "WARD_CONTEXT: secrets.core.code.development" "$C/out" || diag "WARD_CONTEXT ausente"
+  grep -qF "WARD_DIR: /repo" "$C/out" || diag "WARD_DIR ausente"
+  grep -qF "DATABASE_HOST: database" "$C/out" || diag "DATABASE_HOST ausente"
+  grep -qE "condition: service_healthy" "$C/out" || diag "depends_on database healthy ausente"
+  grep -qE "published: \"?3456\"?" "$C/out" || diag "porta WEB_PORT ausente"
+  grep -qF "target: /repo/.ward" "$C/out" || diag "volume .ward ausente"
+  grep -qF "target: /source" "$C/out" || diag "volume do código ausente"
+  grep -qF "working_dir: /source" "$C/out" || diag "working_dir ausente"
+}
+
+t_mod_compose_requires_web_port() {
+  # arrange
+  if ! have_docker; then printf 'ok - skip: sem docker compose\n'; return; fi
+  t_mod_compose_project
+  # act
+  ( cd "$MP" && env -u WEB_PORT PATH="$ORIG_PATH" docker compose --profile tools config ) >"$C/out" 2>"$C/err"
+  RC=$?
+  # assert
+  rc_fail
+  err_has "set WEB_PORT in .env"
+}
+
+run_case "run: --service-ports só em start e server" t_cr_service_ports_only_for_start_and_server
+run_case "run: sem --service-ports nos demais scripts" t_cr_no_service_ports_for_other_scripts
+run_case "shell: run/shell sobrepõe o compose" t_sh_run_shell_overrides
+run_case "shell: serviço sem run/shell usa compose run zsh" t_sh_service_without_run_shell_uses_compose
+run_case "shell: COMMONS_SHELL troca o shell" t_sh_commons_shell_overrides_zsh
+run_case "shell: sai 0 mesmo se o container falhar" t_sh_exit_zero_when_container_fails
+run_case "shell: falha do build-image falha" t_sh_build_failure_fails
+run_case "shell: sem serviço usa o host" t_sh_without_service_uses_host
+run_case "image: contexto precompile com o arquivo" t_img_precompile_context_with_file
+run_case "image: contexto precompile vazio sem arquivo" t_img_precompile_context_empty_without_file
+run_case "image: precompile só na etapa release" t_img_precompile_copied_only_in_release
+run_case "image real: precompile.env visível no precompile" t_img_real_precompile_env_visible
+run_case "image real: precompile.env preserva cache de deps" t_img_real_precompile_env_keeps_deps_cache
+run_case "compose: module.yml expande o serviço completo" t_mod_compose_full_service
+run_case "compose: module.yml exige WEB_PORT" t_mod_compose_requires_web_port
 
 printf '1..%s\n' "$N"
 printf '# passed %s, failed %s\n' "$PASSED" "$FAILED"

@@ -32,6 +32,7 @@ ARG RELEASE_USER
 @@DEPS_COPY@@
 COPY --from=source /source /source
 @@RELEASE_ENV@@
+COPY --from=precompile . /hooks/precompile/
 COPY --from=scripts release.*.sh /hooks/release/
 RUN for f in /hooks/release/*.sh; do echo "[commons] $f"; sh -e "$f" || { echo "[commons] falhou: $f" >&2; exit 1; }; done
 USER ${RELEASE_USER}:${RELEASE_USER}

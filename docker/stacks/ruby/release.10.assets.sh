@@ -1,6 +1,14 @@
 #!/bin/sh
 set -eu
 if [ -f bin/rails ]; then
+  if [ -f /hooks/precompile/precompile.env ]; then
+    while IFS= read -r line || [ -n "$line" ]; do
+      case "$line" in
+        "" | "#"*) continue ;;
+      esac
+      export "${line%%=*}=${line#*=}"
+    done </hooks/precompile/precompile.env
+  fi
   SECRET_KEY_BASE_DUMMY=1 \
     DATABASE_URL="postgres://postgres:postgres@localhost:5432/${PROJECT:-app}" \
     bundle exec rails assets:precompile

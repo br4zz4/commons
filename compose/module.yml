@@ -1,0 +1,37 @@
+# Base dev service for an application module, reused via `extends`.
+#
+# Project compose.yml:
+#   include:
+#     - .commons/compose/database.yml
+#     - .commons/compose/mail.yml
+#   services:
+#     core:
+#       extends: {file: .commons/compose/module.yml, service: module}
+#       image: <project>-core:dev
+#       environment:
+#         WARD_CONTEXT: secrets.core.code.development
+#       volumes:
+#         - ./modules/core/code:/source
+#
+# Contract: the project MUST declare image, the module code volume mounted at
+# /source, and WARD_CONTEXT. Lists declared by the project (volumes, ports)
+# are merged with the ones below; environment is merged by key.
+# Relative paths (env_file, .ward) resolve against this file, so ../../ is the project root.
+services:
+  module:
+    profiles: [tools]
+    working_dir: /source
+    env_file:
+      - ../../.env
+    environment:
+      DATABASE_HOST: database
+      SMTP_HOST: mail
+      WARD_DIR: /repo
+      WARD_EXECUTABLE_PATH: /usr/local/bin/ward
+    ports:
+      - "${WEB_PORT:?set WEB_PORT in .env}:${WEB_PORT}"
+    volumes:
+      - ../../.ward:/repo/.ward:ro
+    depends_on:
+      database:
+        condition: service_healthy
