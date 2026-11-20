@@ -105,6 +105,29 @@ There is no Redis by default: Rails projects use Solid Cache and Solid Queue on 
 
 `lint`, `audit` and `test` use `<code>/run/<step>` when it exists: in the compose service's container when there is one (as above), and the pipeline runs that same script on the host. Without `run/<step>` they fall back to `<code>/ci/checks/<step>.sh`. `build`, `validate` and `plan` are unchanged.
 
+`commons shell <module>` opens a `zsh` (or `$COMMONS_SHELL`) in that same service after building the dev image, and always exits 0 (the exit status of the last command typed in an interactive shell is not an error). A module `run/shell` overrides it. Only `start` and `server` publish the service ports; every other script runs without them, so two runs never fight over a port.
+
+### Module base service
+
+`compose/module.yml` is a base dev service to extend, so a project only declares what is its own:
+
+```yaml
+services:
+  core:
+    extends: {file: .commons/compose/module.yml, service: module}
+    image: <project>-core:dev
+    environment:
+      WARD_CONTEXT: secrets.core.code.development
+    volumes:
+      - ./modules/core/code:/source
+```
+
+It brings `working_dir`, the root `.env`, `DATABASE_HOST`, `SMTP_HOST`, the ward wiring, the `WEB_PORT` mapping, the read-only vault and `depends_on: database (healthy)`. Relative paths resolve against `.commons/compose/`, so it expects the commons at `.commons/` in the project root.
+
+### Build-time placeholders
+
+`<code>/.module/precompile.env` (`KEY=VALUE`, `#` and blank lines ignored) holds the variables `assets:precompile` needs when the release image is built without runtime secrets. It reaches only the release stage, so editing it never invalidates the dependency layer.
+
 ## Example
 
 `examples/polyglot` has a ruby, a go and an elixir module with the same hooks; the CI of this
