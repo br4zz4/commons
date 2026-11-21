@@ -3173,6 +3173,87 @@ t_img_precompile_copied_only_in_release() {
   awk '/^FROM .* AS release/{exit} /precompile/{f=1} END{exit f}' "$IMG_CTX/Dockerfile" || diag "precompile referenciado antes da etapa release"
 }
 
+BOOTSNAP_SCRIPT="$REPO/docker/stacks/ruby/release.05.bootsnap.sh"
+
+ruby_bootsnap_app() {
+  APP="$C/app"
+  mkdir -p "$APP" "$C/rubybin"
+  cat >"$C/rubybin/bundle" <<'SH'
+#!/bin/sh
+printf 'bundle %s\n' "$*" >>"$FAKE_LOG"
+if [ "$*" = "exec bootsnap --version" ]; then
+  exit "${BOOTSNAP_VERSION_RC:-0}"
+fi
+exit 0
+SH
+  chmod +x "$C/rubybin/bundle"
+  PATH="$C/rubybin:$PATH"
+  export PATH
+}
+
+ruby_bootsnap_run() {
+  ( cd "$APP" && sh "$BOOTSNAP_SCRIPT" ) </dev/null >"$C/out" 2>"$C/err"
+  RC=$?
+}
+
+t_ruby_bootsnap_precompiles() {
+  # arrange
+  ruby_bootsnap_app
+  mkdir -p "$APP/bin"
+  printf '#!/bin/sh\n' >"$APP/bin/rails"
+  # act
+  ruby_bootsnap_run
+  # assert
+  rc_ok
+  log_has "bundle exec bootsnap precompile --gemfile app/ lib/"
+}
+
+t_ruby_bootsnap_gem_missing() {
+  # arrange
+  ruby_bootsnap_app
+  mkdir -p "$APP/bin"
+  printf '#!/bin/sh\n' >"$APP/bin/rails"
+  BOOTSNAP_VERSION_RC=1
+  export BOOTSNAP_VERSION_RC
+  # act
+  ruby_bootsnap_run
+  unset BOOTSNAP_VERSION_RC
+  # assert
+  rc_ok
+  log_lacks "precompile"
+}
+
+t_ruby_bootsnap_without_rails() {
+  # arrange
+  ruby_bootsnap_app
+  # act
+  ruby_bootsnap_run
+  # assert
+  rc_ok
+  log_lacks "bundle"
+}
+
+t_ruby_bootsnap_script_order() {
+  # arrange
+  img_fake_docker
+  img_module
+  # act
+  cm "$BIN" build-image core release
+  # assert
+  rc_ok
+  script_name=$(basename "$BOOTSNAP_SCRIPT")
+  case "$script_name" in
+    [a-z]*.[0-9][0-9].*.sh) ;;
+    *) diag "nome fora do padrão <etapa>.<NN>.<nome>.sh" ;;
+  esac
+  [ -f "$IMG_CTX/scripts/$script_name" ] || diag "sem $script_name no contexto: $(img_ctx_scripts)"
+  order=$(cd "$IMG_CTX/scripts" && ls release.*.sh | tr '\n' ' ')
+  case "$order" in
+    *release.05.bootsnap.sh*release.10.assets.sh*release.20.ward.sh*) ;;
+    *) diag "ordem inesperada: $order" ;;
+  esac
+}
+
 img_real_precompile_setup() {
   img_real_setup
   mkdir -p "$IMG_CODE/bin" "$IMG_CODE/.module/scripts"
@@ -3288,6 +3369,10 @@ run_case "shell: sem serviço usa o host" t_sh_without_service_uses_host
 run_case "image: contexto precompile com o arquivo" t_img_precompile_context_with_file
 run_case "image: contexto precompile vazio sem arquivo" t_img_precompile_context_empty_without_file
 run_case "image: precompile só na etapa release" t_img_precompile_copied_only_in_release
+run_case "ruby release: bootsnap precompila quando disponível" t_ruby_bootsnap_precompiles
+run_case "ruby release: bootsnap ausente não quebra" t_ruby_bootsnap_gem_missing
+run_case "ruby release: sem bin/rails não chama bundle" t_ruby_bootsnap_without_rails
+run_case "ruby release: bootsnap ordena antes de assets e ward" t_ruby_bootsnap_script_order
 run_case "image real: precompile.env visível no precompile" t_img_real_precompile_env_visible
 run_case "image real: precompile.env preserva cache de deps" t_img_real_precompile_env_keeps_deps_cache
 run_case "compose: module.yml expande o serviço completo" t_mod_compose_full_service
