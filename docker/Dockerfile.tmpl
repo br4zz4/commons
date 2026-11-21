@@ -16,7 +16,7 @@ FROM tools AS deps
 ARG DEPS_ENV=dev
 COPY --from=manifests . ./
 COPY --from=scripts deps.*.sh /hooks/deps/
-RUN for f in /hooks/deps/*.sh; do echo "[commons] $f"; sh -e "$f" || { echo "[commons] falhou: $f" >&2; exit 1; }; done
+RUN --mount=type=cache,id=commons-deps-${DEPS_ENV},target=/cache/deps for f in /hooks/deps/*.sh; do echo "[commons] $f"; sh -e "$f" || { echo "[commons] falhou: $f" >&2; exit 1; }; done
 
 FROM deps AS dev
 COPY --from=scripts dev.*.sh /hooks/dev/
