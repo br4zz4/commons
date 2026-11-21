@@ -1,8 +1,8 @@
 ---
 title: Cache de camadas no registry para o commons build-image
-status: proposed
+status: done
 created: 2026-11-20
-updated: 2026-11-20
+updated: 2026-11-21
 owner: "@oporpino"
 certainty: high
 ---
@@ -113,17 +113,17 @@ Depois do merge, o luneta faz o bump do submódulo `.commons` (PR 3 da spec coor
 
 # definition of done
 
-- [ ] Todo cenário de "acceptance criteria" validado por teste em `tests/run.sh`
-- [ ] Cenário "build com cache no registry": teste verifica o comando completo com `--cache-from`, `--cache-to`, `--push` e o builder
-- [ ] Cenários "builder criado sob demanda" e "builder existente é reaproveitado": testes verdes
-- [ ] Cenários "cache sem push" e "cache-ref sem valor": testes verdes com as mensagens exatas
-- [ ] Cenário "sem cache-ref nada muda": teste compara o comando com o de hoje
-- [ ] Cenário "primeiro build com o ref de cache ainda inexistente": validado no primeiro build do luneta (run de main com o job `core / build` verde)
-- [ ] Testes automáticos passando: `sh tests/run.sh` e workflow `self` (Linux e macOS)
-- [ ] Toda task do "how" executada
-- [ ] README atualizado com `--cache-ref`
-- [ ] Staging: `staging: none` (biblioteca; a validação em staging fica na spec coordenadora do luneta)
-- [ ] Banner `FINISHED` impresso como última saída (`br4zz4:finish`, Step 7), só com todos os itens acima marcados
+- [x] Todo cenário de "acceptance criteria" validado por teste em `tests/run.sh` — 7 testes `image cache: ...`; `sh tests/run.sh` 218 passed, 0 failed, 2 rodadas seguidas; PR br4zz4/commons#7
+- [x] Cenário "build com cache no registry": teste verifica o comando completo com `--cache-from`, `--cache-to`, `--push` e o builder
+- [x] Cenários "builder criado sob demanda" e "builder existente é reaproveitado": testes verdes
+- [x] Cenários "cache sem push" e "cache-ref sem valor": testes verdes com as mensagens exatas
+- [x] Cenário "sem cache-ref nada muda": teste compara o comando com o de hoje
+- [x] Cenário "primeiro build com o ref de cache ainda inexistente": validado no primeiro build do luneta (run de main 44833156146, `core / build` 113 s, `:buildcache` gravado); o build seguinte (run 44834433924) saiu em 27 s com 14 etapas `CACHED`
+- [x] Testes automáticos passando: `sh tests/run.sh` e workflow `self` (Linux e macOS) — unit-linux e unit-macos verdes no PR #7
+- [x] Toda task do "how" executada
+- [x] README atualizado com `--cache-ref`
+- [x] Staging: `staging: none` (biblioteca; a validação em staging fica na spec coordenadora do luneta)
+- [x] Banner `FINISHED` impresso como última saída (`br4zz4:finish`, Step 7), só com todos os itens acima marcados
 
 ## documentation
 
