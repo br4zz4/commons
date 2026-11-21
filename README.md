@@ -129,6 +129,8 @@ It brings `working_dir`, the root `.env`, `DATABASE_HOST`, `SMTP_HOST`, the ward
 
 ### Build-time placeholders
 
+The `ruby` stack precompiles the Bootsnap cache in the release stage (`release.05.bootsnap.sh`, only when the app has `bin/rails` and the `bootsnap` gem), so a container does not rebuild `tmp/cache/bootsnap` on every cold start.
+
 `<code>/.module/precompile.env` (`KEY=VALUE`, `#` and blank lines ignored) holds the variables `assets:precompile` needs when the release image is built without runtime secrets. It reaches only the release stage, so editing it never invalidates the dependency layer.
 
 ## Example
