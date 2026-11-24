@@ -45,11 +45,11 @@ $(1).$(2):
 endef
 
 
-.PHONY: conform up down logs help github.setup commons.update
+.PHONY: conform up down logs help git.origin.setup commons.update
 help:
 	@$(COMMONS_BIN) help
-github.setup:
-	@$(COMMONS_BIN) github-setup
+git.origin.setup:
+	@$(COMMONS_BIN) git-origin-setup
 commons.update:
 	@$(COMMONS_BIN) update
 conform:

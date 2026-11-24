@@ -2117,7 +2117,7 @@ t_gh_secrets_set() {
   printf 'sekret-other\n' >"$P/other.key"
   gh_ctx "COMMONS_GITHUB_SECRETS=TOKEN:token.key,OTHER:other.key"
   # act
-  cm "$BIN" github-setup
+  cm "$BIN" git-origin-setup
   # assert
   rc_ok
   log_has "gh secret set TOKEN -R demo/repo"
@@ -2132,7 +2132,7 @@ t_gh_secrets_missing_file() {
   printf 'sekret-other\n' >"$P/other.key"
   gh_ctx "COMMONS_GITHUB_SECRETS=GONE:gone.key,OTHER:other.key"
   # act
-  cm "$BIN" github-setup
+  cm "$BIN" git-origin-setup
   # assert
   rc_ok
   err_has "secret GONE pulado"
@@ -2144,7 +2144,7 @@ t_gh_secrets_missing_file() {
 t_gh_without_secrets_var() {
   # arrange
   # act
-  cm "$BIN" github-setup
+  cm "$BIN" git-origin-setup
   # assert
   rc_ok
   log_lacks "gh secret set"
@@ -2153,13 +2153,13 @@ t_gh_without_secrets_var() {
 t_gh_merge_patch() {
   # arrange
   # act
-  cm "$BIN" github-setup
+  cm "$BIN" git-origin-setup
   # assert
   rc_ok
   log_has "gh api -X PATCH repos/demo/repo"
-  log_has "allow_merge_commit=false"
-  log_has "allow_squash_merge=true"
-  log_has "allow_rebase_merge=true"
+  log_has "allow_merge_commit=true"
+  log_has "allow_squash_merge=false"
+  log_has "allow_rebase_merge=false"
   log_has "delete_branch_on_merge=true"
 }
 
@@ -2168,7 +2168,7 @@ t_gh_ruleset_deferred() {
   mk_gh_project
   gh_ctx "COMMONS_REQUIRED_CHECK=check/pr"
   # act
-  cm "$BIN" github-setup
+  cm "$BIN" git-origin-setup
   # assert
   rc_ok
   err_has "ruleset adiado: nenhum workflow em main declara check/pr"
@@ -2182,7 +2182,7 @@ t_gh_ruleset_created() {
   mk_gh_project workflow
   gh_ctx "COMMONS_REQUIRED_CHECK=check/pr"
   # act
-  cm "$BIN" github-setup
+  cm "$BIN" git-origin-setup
   # assert
   rc_ok
   log_has "gh api -X POST repos/demo/repo/rulesets --input -"
@@ -2198,9 +2198,9 @@ t_gh_ruleset_idempotent() {
   mk_gh_project workflow
   gh_ctx "COMMONS_REQUIRED_CHECK=check/pr"
   # act
-  cm "$BIN" github-setup
+  cm "$BIN" git-origin-setup
   rc_ok
-  cm GH_RULESET_ID=7 "$BIN" github-setup
+  cm GH_RULESET_ID=7 "$BIN" git-origin-setup
   # assert
   rc_ok
   log_has "gh api -X PUT repos/demo/repo/rulesets/7 --input -"
@@ -2213,7 +2213,7 @@ t_gh_ruleset_existing_put_only() {
   mk_gh_project workflow
   gh_ctx "COMMONS_REQUIRED_CHECK=check/pr"
   # act
-  cm GH_RULESET_ID=42 "$BIN" github-setup
+  cm GH_RULESET_ID=42 "$BIN" git-origin-setup
   # assert
   rc_ok
   log_has "gh api -X PUT repos/demo/repo/rulesets/42 --input -"
@@ -2225,7 +2225,7 @@ t_gh_ruleset_partial_name_deferred() {
   mk_gh_project workflow check/pr-x
   gh_ctx "COMMONS_REQUIRED_CHECK=check/pr"
   # act
-  cm "$BIN" github-setup
+  cm "$BIN" git-origin-setup
   # assert
   rc_ok
   err_has "ruleset adiado: nenhum workflow em main declara check/pr"
@@ -2240,7 +2240,7 @@ t_gh_ruleset_duplicate_ids() {
   gh_ctx "COMMONS_REQUIRED_CHECK=check/pr"
   ids=$(printf '7\n8')
   # act
-  cm "GH_RULESET_ID=$ids" "$BIN" github-setup
+  cm "GH_RULESET_ID=$ids" "$BIN" git-origin-setup
   # assert
   rc_ok
   log_has "gh api -X PUT repos/demo/repo/rulesets/7 --input -"
@@ -2251,7 +2251,7 @@ t_gh_no_required_check() {
   # arrange
   mk_gh_project workflow
   # act
-  cm GH_RULESET_ID=7 "$BIN" github-setup
+  cm GH_RULESET_ID=7 "$BIN" git-origin-setup
   # assert
   rc_ok
   log_lacks "/rulesets"
@@ -2265,7 +2265,7 @@ t_gh_make_target() {
   printf 'sekret-token\n' >"$P/token.key"
   gh_ctx "COMMONS_GITHUB_SECRETS=TOKEN:token.key"
   # act
-  cm make --no-print-directory github.setup
+  cm make --no-print-directory git.origin.setup
   # assert
   rc_ok
   log_has "gh secret set TOKEN -R demo/repo"
@@ -2344,7 +2344,7 @@ t_help_lists_everything() {
   rc_ok
   grep -qF "<m>.lint" "$C/out" || diag "help sem o comando <m>.lint"
   grep -qF "up|down|logs" "$C/out" || diag "help sem up|down|logs"
-  grep -qF "github.setup" "$C/out" || diag "help sem github.setup"
+  grep -qF "git.origin.setup" "$C/out" || diag "help sem git.origin.setup"
   grep -qF "commons.update" "$C/out" || diag "help sem commons.update"
   out_has "module core"
   out_has "module plain"
@@ -2361,7 +2361,7 @@ t_help_without_ctx() {
   cm "$BIN" help
   # assert
   rc_ok
-  grep -qF "github.setup" "$C/out" || diag "help sem github.setup"
+  grep -qF "git.origin.setup" "$C/out" || diag "help sem git.origin.setup"
   out_has "module core"
 }
 
@@ -2437,18 +2437,18 @@ run_case "init: projeto sob symlink" t_init_under_symlink
 run_case "init: .gitignore sem newline final" t_init_gitignore_without_trailing_newline
 run_case "init: compose.yml gerado é válido" t_init_generated_compose_is_valid
 run_case "compose real: down mantém o volume database_data" t_compose_real_up_down_keeps_volume
-run_case "github.setup: gh secret set por par com a chave no stdin" t_gh_secrets_set
-run_case "github.setup: arquivo de secret ausente avisa e segue" t_gh_secrets_missing_file
-run_case "github.setup: sem COMMONS_GITHUB_SECRETS não grava secret" t_gh_without_secrets_var
-run_case "github.setup: PATCH de merge settings" t_gh_merge_patch
-run_case "github.setup: ruleset adiado sem workflow na default" t_gh_ruleset_deferred
-run_case "github.setup: ruleset criado com workflow na default" t_gh_ruleset_created
-run_case "github.setup: segunda execução faz PUT no mesmo id" t_gh_ruleset_idempotent
-run_case "github.setup: ruleset existente só recebe PUT" t_gh_ruleset_existing_put_only
-run_case "github.setup: name parcial não conta como declarado" t_gh_ruleset_partial_name_deferred
-run_case "github.setup: id de ruleset duplicado usa o primeiro" t_gh_ruleset_duplicate_ids
-run_case "github.setup: sem COMMONS_REQUIRED_CHECK não toca rulesets" t_gh_no_required_check
-run_case "make github.setup" t_gh_make_target
+run_case "git.origin.setup: gh secret set por par com a chave no stdin" t_gh_secrets_set
+run_case "git.origin.setup: arquivo de secret ausente avisa e segue" t_gh_secrets_missing_file
+run_case "git.origin.setup: sem COMMONS_GITHUB_SECRETS não grava secret" t_gh_without_secrets_var
+run_case "git.origin.setup: PATCH de merge settings" t_gh_merge_patch
+run_case "git.origin.setup: ruleset adiado sem workflow na default" t_gh_ruleset_deferred
+run_case "git.origin.setup: ruleset criado com workflow na default" t_gh_ruleset_created
+run_case "git.origin.setup: segunda execução faz PUT no mesmo id" t_gh_ruleset_idempotent
+run_case "git.origin.setup: ruleset existente só recebe PUT" t_gh_ruleset_existing_put_only
+run_case "git.origin.setup: name parcial não conta como declarado" t_gh_ruleset_partial_name_deferred
+run_case "git.origin.setup: id de ruleset duplicado usa o primeiro" t_gh_ruleset_duplicate_ids
+run_case "git.origin.setup: sem COMMONS_REQUIRED_CHECK não toca rulesets" t_gh_no_required_check
+run_case "make git.origin.setup" t_gh_make_target
 run_case "update: bin faz fetch --tags e checkout da tag" t_update_bin
 run_case "update: make commons.update" t_update_make
 run_case "update: usa COMMONS_REF do ctx" t_update_uses_ctx_ref

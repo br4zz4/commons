@@ -22,11 +22,11 @@ commons_github_secrets() {
 
 commons_github_merge() {
   gh api -X PATCH "repos/$1" \
-    -F allow_merge_commit=false \
-    -F allow_squash_merge=true \
-    -F allow_rebase_merge=true \
+    -F allow_merge_commit=true \
+    -F allow_squash_merge=false \
+    -F allow_rebase_merge=false \
     -F delete_branch_on_merge=true > /dev/null
-  commons_info "merge configurado: squash e rebase"
+  commons_info "merge configurado: só merge commit"
 }
 
 commons_github_ruleset() {

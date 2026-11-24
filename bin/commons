@@ -211,7 +211,7 @@ cmd_logs() {
   exec docker compose logs -f "$@"
 }
 
-cmd_github_setup() {
+cmd_git_origin_setup() {
   . "$COMMONS_HOME/lib/github.sh"
   commons_github_setup
 }
@@ -235,7 +235,7 @@ cmd_help() {
   printf '  <m>.shell|db|keys|remote|secrets         shell, psql, key names, remote hook, secret push\n'
   printf '  build-image <m> <dev|release>            build the module image [--tag T] [--platform P] [--push] [--cache-ref R]\n'
   printf '  up|down|logs                             compose services\n'
-  printf '  conform|github.setup|commons.update      project checks and maintenance\n'
+  printf '  conform|git.origin.setup|commons.update      project checks and maintenance\n'
   [ -f "$COMMONS_ROOT/.github/modules.json" ] || return 0
   for module in $(python3 -I "$COMMONS_HOME/lib/modules.py" "$COMMONS_ROOT" list); do
     dir=$(python3 -I "$COMMONS_HOME/lib/modules.py" "$COMMONS_ROOT" dir "$module" code)
@@ -280,7 +280,7 @@ case "$command" in
   up) cmd_up "$@" ;;
   down) cmd_down "$@" ;;
   logs) cmd_logs "$@" ;;
-  github-setup) cmd_github_setup ;;
+  git-origin-setup) cmd_git_origin_setup ;;
   update) cmd_update ;;
   help | -h | --help) cmd_help ;;
   conform) cmd_conform ;;
