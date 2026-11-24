@@ -2081,8 +2081,9 @@ print(a.getsockname()[1], b.getsockname()[1])')
 
 mk_gh_project() {
   GR="$C/remote.git"
-  git init -q --bare -b main "$GR"
-  ( cd "$P" && git init -q -b main . && git remote add origin "$GR" )
+  br="${GH_DEFAULT_BRANCH-main}"
+  git init -q --bare -b "$br" "$GR"
+  ( cd "$P" && git init -q -b "$br" . && git remote add origin "$GR" )
   if [ "${1-}" = workflow ]; then
     mkdir -p "$P/.github/workflows"
     printf 'name: %s\non: pull_request\n' "${2-check/pr}" >"$P/.github/workflows/pr.yml"
@@ -2091,7 +2092,7 @@ mk_gh_project() {
     printf 'x\n' >"$P/readme.txt"
     ( cd "$P" && git add readme.txt )
   fi
-  ( cd "$P" && git -c user.name=t -c user.email=t@t commit -q -m init && git push -q origin main && git fetch -q origin )
+  ( cd "$P" && git -c user.name=t -c user.email=t@t commit -q -m init && git push -q origin "$br" && git fetch -q origin )
 }
 
 gh_ctx() {
@@ -2257,6 +2258,35 @@ t_gh_no_required_check() {
   log_lacks "-X POST"
   log_lacks "-X PUT"
   log_has "gh api -X PATCH repos/demo/repo"
+}
+
+t_gh_default_branch_via_api() {
+  # arrange
+  mk_gh_project workflow
+  gh_ctx "COMMONS_REQUIRED_CHECK=check/pr"
+  # act
+  cm "$BIN" git-origin-setup
+  # assert
+  rc_ok
+  log_has "gh api repos/demo/repo --jq .default_branch"
+  log_lacks "repo view -R"
+  log_has "gh api -X POST repos/demo/repo/rulesets --input -"
+}
+
+t_gh_default_branch_custom() {
+  # arrange
+  GH_DEFAULT_BRANCH=trunk
+  export GH_DEFAULT_BRANCH
+  mk_gh_project workflow
+  gh_ctx "COMMONS_REQUIRED_CHECK=check/pr"
+  # act
+  cm "$BIN" git-origin-setup
+  # assert
+  unset GH_DEFAULT_BRANCH
+  rc_ok
+  git -C "$P" cat-file -e origin/trunk:.github/workflows/pr.yml || diag "workflow fora de origin/trunk"
+  log_has "gh api repos/demo/repo --jq .default_branch"
+  log_has "gh api -X POST repos/demo/repo/rulesets --input -"
 }
 
 t_gh_make_target() {
@@ -2447,6 +2477,8 @@ run_case "git.origin.setup: ruleset existente só recebe PUT" t_gh_ruleset_exist
 run_case "git.origin.setup: name parcial não conta como declarado" t_gh_ruleset_partial_name_deferred
 run_case "git.origin.setup: id de ruleset duplicado usa o primeiro" t_gh_ruleset_duplicate_ids
 run_case "git.origin.setup: sem COMMONS_REQUIRED_CHECK não toca rulesets" t_gh_no_required_check
+run_case "git.origin.setup: default branch via gh api sem repo view -R" t_gh_default_branch_via_api
+run_case "git.origin.setup: default branch customizada (trunk)" t_gh_default_branch_custom
 run_case "make git.origin.setup" t_gh_make_target
 run_case "update: bin faz fetch --tags e checkout da tag" t_update_bin
 run_case "update: make commons.update" t_update_make

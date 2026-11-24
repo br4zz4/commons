@@ -33,7 +33,7 @@ commons_github_ruleset() {
   repo="$1"
   check="${COMMONS_REQUIRED_CHECK-}"
   [ -n "$check" ] || return 0
-  default=$(gh repo view -R "$repo" --json defaultBranchRef -q .defaultBranchRef.name)
+  default=$(gh api "repos/$repo" --jq .default_branch)
   git -C "$COMMONS_ROOT" fetch -q origin "$default" 2> /dev/null || true
   if ! git -C "$COMMONS_ROOT" grep -qE "^name: ${check}[[:space:]]*$|^[[:space:]]+name: ${check}[[:space:]]*$" "origin/$default" -- .github/workflows 2> /dev/null; then
     commons_warn "ruleset adiado: nenhum workflow em $default declara $check"

@@ -13,7 +13,7 @@ git submodule add https://github.com/br4zz4/commons .commons
 
 `init` is idempotent and never overwrites: it creates `Makefile` (with
 `include .commons/make/main.mk`), `commons.ctx`, `compose.yml` and the `.gitignore` entry, then
-runs `make conform` to list what is missing. Fill `commons.ctx`, then run `make github.setup`
+runs `make conform` to list what is missing. Fill `commons.ctx`, then run `make git.origin.setup`
 once the generated `pr.yml` is on the default branch.
 
 ## commons.ctx
@@ -45,7 +45,7 @@ Comment out `COMMONS_VAULT` for a project without ward. See `docs/contract.md` f
 | `<m>.remote` `<m>.secrets` | `<infra>/ops/remote.sh`, secret push through `<infra>/ops/secrets.sh` |
 | `build-image <m> <dev\|release>` | module image (see Images; run `commons build-image` directly) |
 | `up` `down` `logs` | compose services |
-| `conform` `github.setup` `commons.update` `help` | project checks and maintenance |
+| `conform` `git.origin.setup` `commons.update` `help` | project checks and maintenance |
 
 Every command takes `ENV=`, `ARGS=` and, for restricted environments, `CONFIRM=<project>`.
 
