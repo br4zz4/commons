@@ -33,7 +33,7 @@ case "$1" in
       json=1
       shift
     fi
-    if [ "${FAKE_WARD_AIMODE-}" = 1 ]; then
+    if [ "$json" = 1 ] && [ "${FAKE_WARD_AIMODE-}" = 1 ]; then
       echo "ward: --json is unavailable in AI mode — secret values are never exposed" >&2
       exit 1
     fi
@@ -66,9 +66,8 @@ print(json.dumps(out))'
     fi
     pairs_for "$1" | while IFS= read -r line; do
       [ -n "$line" ] || continue
-      printf '\033[32m●\033[0m \033[1m%s\033[0m = %s\n' "${line%%=*}" "${line#*=}"
+      printf '%s\n' "${line%%=*}"
     done
-    printf '\033[32m● active\033[0m \033[33m● overrides\033[0m\n'
     ;;
   *) exit 2 ;;
 esac

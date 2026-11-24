@@ -1024,11 +1024,10 @@ t_aimode_hook_fails() {
   # act
   cm FAKE_WARD_AIMODE=1 "$BIN" hook core test
   # assert
-  rc_fail
-  err_has "commons: o ward recusou ler demo:secrets.core.code.check: ele roda em modo de agente (rode fora do agente)"
-  if grep -q "escopo .* vazio" "$C/err"; then diag "tratou modo de agente como escopo vazio"; fi
-  hook_not_ran
-  log_lacks "ward exec"
+  rc_ok
+  hook_ran
+  log_has "ward exec demo:secrets.core.code.check"
+  never_leaks
 }
 
 t_aimode_keys_fails() {
@@ -1513,7 +1512,7 @@ run_case "remote: hook executável com shebang próprio roda direto" t_remote_ex
 run_case "secrets: hook executável com shebang próprio roda direto" t_secrets_executable_hook_uses_shebang
 run_case "remote: hook não executável roda via sh" t_remote_non_executable_hook_runs_with_sh
 run_case "secrets: hook não executável roda via sh" t_secrets_non_executable_hook_runs_with_sh
-run_case "modo de agente: hook falha sem rodar" t_aimode_hook_fails
+run_case "modo de agente: hook roda sem expor valores" t_aimode_hook_fails
 run_case "modo de agente: keys falha" t_aimode_keys_fails
 run_case "modo de agente: secrets falha sem rodar o hook" t_aimode_secrets_fails
 run_case "modo de agente: remote falha sem rodar o hook" t_aimode_remote_fails
