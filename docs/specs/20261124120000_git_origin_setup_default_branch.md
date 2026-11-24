@@ -1,6 +1,6 @@
 ---
 title: git.origin.setup lê a branch default sem `gh repo view -R`
-status: proposed
+status: done
 created: 2026-11-24
 updated: 2026-11-24
 owner: "@oporpino"
@@ -64,16 +64,16 @@ Depois do merge, mover a tag `v1` conforme o processo de release do commons, par
 
 # definition of done
 
-- [ ] Todo cenário de "acceptance criteria" foi validado (automatizado ou verificado com comando exato)
-- [ ] Testes automáticos passando — suíte verde, não só a parte nova
-- [ ] Toda task do "how" executada
-- [ ] Documentação atualizada (README)
-- [ ] Staging: `staging: none` (biblioteca)
-- [ ] `gh` falso falha com `repo view -R` e o teste de regressão fica vermelho sem a correção (cenário "regressão")
-- [ ] `t_gh_default_branch_via_api` verde (cenário "ruleset criado")
-- [ ] `t_gh_default_branch_custom` verde (cenário "branch default diferente de main")
-- [ ] `grep -n 'github.setup' README.md` vazio (cenário "README")
-- [ ] Tag `v1` contém o commit da correção
+- [x] Todo cenário de "acceptance criteria" foi validado (automatizado ou verificado com comando exato)
+- [x] Testes automáticos passando — suíte verde, não só a parte nova
+- [x] Toda task do "how" executada
+- [x] Documentação atualizada (README)
+- [x] Staging: `staging: none` (biblioteca)
+- [x] `gh` falso falha com `repo view -R` e o teste de regressão fica vermelho sem a correção (cenário "regressão")
+- [x] `t_gh_default_branch_via_api` verde (cenário "ruleset criado")
+- [x] `t_gh_default_branch_custom` verde (cenário "branch default diferente de main")
+- [x] `grep -n 'github.setup' README.md` vazio (cenário "README")
+- [x] Tag `v1` contém o commit da correção (v1 = 6e87561, PR #12, CI unit-linux e unit-macos verdes; suíte 231/0, 8 falhas sem a correção)
 
 ## documentation
 
