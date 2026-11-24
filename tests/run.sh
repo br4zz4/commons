@@ -2362,6 +2362,20 @@ t_update_uses_ctx_ref() {
   [ "$(git -C "$CL" rev-parse HEAD)" = "$(git -C "$CW" rev-parse 'v2^{commit}')" ] || diag "HEAD não está em v2"
 }
 
+t_update_moved_tag() {
+  # arrange
+  mk_commons_clone
+  cm "$CL/bin/commons" update
+  printf 'three\n' >"$CW/three.txt"
+  ( cd "$CW" && git add three.txt && git -c user.name=t -c user.email=t@t commit -q -m three \
+    && git tag -f v1 && git push -q origin main && git push -q -f origin v1 )
+  # act
+  cm "$CL/bin/commons" update
+  # assert
+  rc_ok
+  [ "$(git -C "$CL" rev-parse HEAD)" = "$(git -C "$CW" rev-parse 'v1^{commit}')" ] || diag "HEAD não está na nova v1"
+}
+
 t_help_lists_everything() {
   # arrange
   printf 'deploy: ## deploys the thing\n\t@true\n' >>"$P/Makefile"
@@ -2483,6 +2497,7 @@ run_case "make git.origin.setup" t_gh_make_target
 run_case "update: bin faz fetch --tags e checkout da tag" t_update_bin
 run_case "update: make commons.update" t_update_make
 run_case "update: usa COMMONS_REF do ctx" t_update_uses_ctx_ref
+run_case "commons.update: tag v1 movida no remoto" t_update_moved_tag
 run_case "help: comandos, módulos, run/* e alvos ## do projeto" t_help_lists_everything
 run_case "help: funciona sem commons.ctx" t_help_without_ctx
 run_case "help: funciona em diretório vazio" t_help_empty_dir_without_ctx

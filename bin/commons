@@ -217,7 +217,7 @@ cmd_git_origin_setup() {
 }
 
 cmd_update() {
-  git -C "$COMMONS_HOME" fetch --tags
+  git -C "$COMMONS_HOME" fetch --tags --force
   git -C "$COMMONS_HOME" checkout "$COMMONS_REF"
 }
 
