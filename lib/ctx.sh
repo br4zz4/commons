@@ -75,7 +75,7 @@ commons_check_scope() {
   scope="$1"
   vault=$(commons_vault_for_env "$COMMONS_CURRENT_ENV")
   err=$(mktemp)
-  out=$(ward secrets --json "$scope" 2>"$err") && status=0 || status=$?
+  out=$(ward secrets "$scope" 2>"$err") && status=0 || status=$?
   if [ "$status" -ne 0 ]; then
     if grep -qi 'AI mode' "$err"; then
       rm -f "$err"
@@ -87,17 +87,33 @@ commons_check_scope() {
     out=""
   fi
   rm -f "$err"
-  [ -n "$out" ] && [ "$out" != "{}" ]
+  [ -n "$out" ]
+}
+
+commons_scope_json() {
+  scope="$1"
+  err=$(mktemp)
+  if ! json=$(ward secrets --json "$scope" 2>"$err"); then
+    if grep -qi 'AI mode' "$err"; then
+      rm -f "$err"
+      commons_die "o ward recusou ler $scope: ele roda em modo de agente (rode fora do agente)"
+    fi
+    cat "$err" >&2
+    rm -f "$err"
+    return 1
+  fi
+  rm -f "$err"
+  printf '%s\n' "$json"
 }
 
 commons_scope_names() {
-  ward secrets --json "$1" | python3 -I -c 'import json, sys
+  commons_scope_json "$1" | python3 -I -c 'import json, sys
 for name in json.load(sys.stdin):
     print(name)'
 }
 
 commons_scope_missing() {
-  ward secrets --json "$1" | python3 -I -c 'import json, sys
+  commons_scope_json "$1" | python3 -I -c 'import json, sys
 names = [name for name, value in json.load(sys.stdin).items() if value in ("", None, "CHANGE_ME")]
 print(" ".join(names))'
 }
