@@ -32,7 +32,7 @@ modules/<m>/infra/ops/{remote,secrets}.sh   ops hooks, optional
 | `COMMONS_SCOPE` | with vault | template with `{vault}`, `{module}`, `{side}`, `{env}` |
 | `COMMONS_RESTRICTED_VAULT` | no | vault of the restricted environments |
 | `COMMONS_RESTRICTED_ENVS` | with restricted vault | environments that ask for confirmation |
-| `COMMONS_GITHUB_SECRETS` | no | `NAME:key-file` pairs written by `github.setup` |
+| `COMMONS_GITHUB_SECRETS` | no | `NAME:key-file` pairs written by `git.origin.setup` |
 | `COMMONS_REQUIRED_CHECK` | no | status check required by the default-branch ruleset |
 | `COMMONS_REF` | yes | tag used by `commons.update` |
 
@@ -67,9 +67,9 @@ Fails, citing the file, when: `commons.ctx` is missing a key or names an unknown
 (`lint audit test build validate plan shell db keys remote secrets`); `ops/` holds anything but
 `remote.sh` and `secrets.sh`; `compose.yml` includes a fragment that does not exist.
 
-## github.setup
+## git.origin.setup
 
-Idempotent. Writes the secrets of `COMMONS_GITHUB_SECRETS`, allows only squash and rebase merges
+Idempotent. Writes the secrets of `COMMONS_GITHUB_SECRETS`, allows only merge commits (squash and rebase off)
 with branch deletion, and creates or updates the ruleset `commons-default-branch` requiring
 `COMMONS_REQUIRED_CHECK` (GitHub Actions integration, strict). The ruleset waits until a workflow on the
 default branch declares that check.
