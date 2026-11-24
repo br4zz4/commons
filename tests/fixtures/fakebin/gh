@@ -8,8 +8,13 @@ case "$*" in
     ;;
 esac
 case "$*" in
+  "repo view"*" -R "*)
+    printf "unknown shorthand flag: 'R' in -R\n" >&2
+    exit 1
+    ;;
   "repo view --json nameWithOwner"*) printf '%s\n' "${GH_REPO-demo/repo}" ;;
   "repo view"*defaultBranchRef*) printf '%s\n' "${GH_DEFAULT_BRANCH-main}" ;;
+  "api repos/"*"--jq .default_branch"*) printf '%s\n' "${GH_DEFAULT_BRANCH-main}" ;;
   "api repos/"*"/rulesets --jq"*) printf '%s\n' "${GH_RULESET_ID-}" ;;
 esac
 exit 0
